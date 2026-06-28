@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PACT Engine Parity Tests</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 1rem; }
+    pre { background: #111827; color: #f9fafb; padding: 1rem; border-radius: 0.5rem; overflow: auto; }
+    .warn { color: #92400e; background: #fef3c7; padding: 0.75rem; border-radius: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>PACT Engine Parity Tests</h1>
+  <p class="warn">
+    This runner expects your refactored engine at <code>../../js/engine.js</code> when this pack is placed inside the PWA repo.
+    It uses fixture JSON files from <code>../fixtures</code>.
+  </p>
+
+  <button id="runBtn">Run tests</button>
+  <pre id="output">Not run yet.</pre>
+
+  <script type="module">
+    import {
+      DATA,
+      compute,
+      rebuildStateFromEvents
+    } from "../../js/engine.js";
+
+    const output = document.getElementById("output");
+    const runBtn = document.getElementById("runBtn");
+
+    const fixtureManifest = {
+      builds: [
+        "../fixtures/builds/CG-001-default-empty-build.json",
+        "../fixtures/builds/CG-002-valid-50ap-build.placeholder.json",
+        "../fixtures/builds/CG-003-over-budget-build.placeholder.json"
+      ],
+      liveSheets: [
+        "../fixtures/live-sheets/LS-001-clean-generator-export.placeholder.json"
+      ],
+      eventSets: [
+        "../fixtures/events/EV-001-award-and-purchase.placeholder.json"
+      ]
+    };
+
+    async function loadJson(url) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Could not load ${url}: ${response.status}`);
+      return response.json();
+    }
+
+    function normaliseComputeResult(result) {
+      return {
+        totalCost: result?.totalCost ?? result?.cost ?? result?.total ?? null,
+        warnings: result?.warnings ?? [],
+        ok: result?.ok ?? null,
+        raw: result
+      };
+    }
+
+    async function runBuildTests() {
+      const results = [];
+      for (const fixturePath of fixtureManifest.builds) {
+        try {
+          const build = await loadJson(fixturePath);
+          const computed = compute(build);
+          results.push({ type: "chargen", fixture: fixturePath, pass: true, result: normaliseComputeResult(computed) });
+        } catch (error) {
+          results.push({ type: "chargen", fixture: fixturePath, pass: false, error: error.message });
+        }
+      }
+      return results;
+    }
+
+    async function runLiveSheetTests() {
+      const results = [];
+      for (const fixturePath of fixtureManifest.liveSheets) {
+        try {
+          const liveSheet = await loadJson(fixturePath);
+          const baseSnapshot = liveSheet.snapshot_build ?? liveSheet.baseSnapshot ?? liveSheet.build ?? liveSheet;
+          const events = liveSheet.events ?? liveSheet.event_log ?? [];
+          const rebuilt = rebuildStateFromEvents(baseSnapshot, events);
+          results.push({ type: "live-sheet", fixture: fixturePath, pass: true, result: rebuilt });
+        } catch (error) {
+          results.push({ type: "live-sheet", fixture: fixturePath, pass: false, error: error.message });
+        }
+      }
+      return results;
+    }
+
+    async function runEventTests() {
+      const results = [];
+      for (const fixturePath of fixtureManifest.eventSets) {
+        try {
+          const fixture = await loadJson(fixturePath);
+          const rebuilt = rebuildStateFromEvents(fixture.baseSnapshot, fixture.events);
+          results.push({ type: "event-sourcing", fixture: fixturePath, pass: true, result: rebuilt });
+        } catch (error) {
+          results.push({ type: "event-sourcing", fixture: fixturePath, pass: false, error: error.message });
+        }
+      }
+      return results;
+    }
+
+    runBtn.addEventListener("click", async () => {
+      const startedAt = new Date().toISOString();
+      const results = [];
+      results.push(...await runBuildTests());
+      results.push(...await runLiveSheetTests());
+      results.push(...await runEventTests());
+      const summary = {
+        startedAt,
+        engineVersion: DATA?.version ?? "unknown",
+        total: results.length,
+        passed: results.filter(r => r.pass).length,
+        failed: results.filter(r => !r.pass).length,
+        results
+      };
+      output.textContent = JSON.stringify(summary, null, 2);
+    });
+  </script>
+</body>
+</html>

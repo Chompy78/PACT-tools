@@ -1,0 +1,17 @@
+{
+  "pack_name": "PACT Regression Test Pack",
+  "created_at": "2026-06-28T05:20:44.482607Z",
+  "source_files_referenced": [
+    "PACT-CharGen-Webtool-v0.104.html",
+    "PACT-Live-Char-Sheet-v0.104.html",
+    "DM Console - CardGrid-v0.014.html",
+    "DM Console - DataTable-v0.014.html"
+  ],
+  "note": "Actual source HTML and exported JSON were not accessible in sandbox; placeholder fixtures must be replaced with real exports before final sign-off.",
+  "test_groups": [
+    "chargen",
+    "live-sheet",
+    "event-sourcing",
+    "data-version"
+  ]
+}

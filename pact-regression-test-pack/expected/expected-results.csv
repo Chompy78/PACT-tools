@@ -1,0 +1,6 @@
+test_id,test_group,fixture,legacy_ap_total,new_engine_ap_total,legacy_warnings,new_engine_warnings,legacy_valid,new_engine_valid,pass,notes
+CG-001,chargen,fixtures/builds/CG-001-default-empty-build.json,,,,,,,,
+CG-002,chargen,fixtures/builds/CG-002-valid-50ap-build.json,,,,,,,,
+CG-003,chargen,fixtures/builds/CG-003-over-budget-build.json,,,,,,,,
+LS-001,live-sheet,fixtures/live-sheets/LS-001-clean-generator-export.json,,,,,,,,
+EV-001,event-sourcing,fixtures/events/EV-001-award-and-purchase.json,,,,,,,,

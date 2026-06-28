@@ -125,6 +125,8 @@ body[data-theme="dark"] .cath{background:linear-gradient(180deg,#1c2740,#16203a)
 .ib{display:inline-flex;flex-direction:column;align-items:flex-start;background:var(--inp);border:1px solid var(--line);border-radius:7px;padding:4px 8px;font:inherit;font-size:11.5px;cursor:pointer;color:var(--navytx);line-height:1.2}
 .ib em{font-style:normal;color:var(--blue);font-weight:800}
 .ib .why{font-size:9.5px;color:#8a6d00;font-style:italic;margin-top:1px}
+.ib .ibhead{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;width:100%}
+.ib .why.dsc{color:var(--grey);font-style:normal}
 .ib.dis{opacity:.55;background:var(--lt);border-style:dashed;cursor:help}.ib.dis em{color:var(--grey)}
 .ib.warn{background:var(--warnbg);border-color:var(--warnbd)}.ib.warn .why{color:#b35a00}
 .ib.draw{background:var(--badbg);color:var(--bad)}.ib.draw em{color:var(--bad)}
@@ -952,7 +954,7 @@ const catOpen={'Core':1,'Proficiencies':1,'Class & subclass':1,'Magic':1,'Herita
 function toggleCat(c){catOpen[c]=catOpen[c]?0:1;refreshBuy();}
 function _catOf(lab){
   if(['Progress','Abilities','Survivability','Saving throws'].indexOf(lab)>=0)return 'Core';
-  if(['Skills','Expertise','Languages','Tools & instruments','Tool expertise','Weapons & armour'].indexOf(lab)>=0)return 'Proficiencies';
+  if(['Skills','Skill expertise','Languages','Tools & instruments','Tool expertise','Weapons & armour'].indexOf(lab)>=0)return 'Proficiencies';
   if(/ features$/.test(lab)||['Cross-class features','Unlock classes','Unlocked-class features','Subclasses & abilities','Subclass spell lists','Eldritch Invocations','Ki, Sorcery & Attunement points'].indexOf(lab)>=0)return 'Class & subclass';
   if(lab==='Spellcasting'||/^Lineage spell/.test(lab))return 'Magic';
   if(lab==='DM house rules')return 'DM / Advanced';
@@ -967,7 +969,7 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 function buildBuyPanel(b,r,eco,head){
   const buyEl=$('buy'); if(!head){buyEl.innerHTML='<p class="hint">Viewing history — return to <b>live</b> to make purchases.</p>';return;}
   // a buyable button: greys out (with the reason) when not allowed; tap a greyed one to hear why
-  function racialWhy(r){if(!r)return '';if(r.minHD&&b.hd<r.minHD)return 'needs '+r.minHD+' Hit Dice (level '+r.minHD+')';if(r.reqRace){var _o=DATA.racial[r.reqRace];var owns=b.racialTraits.indexOf(r.reqRace)>=0||!!(_o&&_o.pack&&(_o.race===b.species||_o.race===b.species2));if(!owns)return 'requires '+((r.reqRace.split(': ')[1])||r.reqRace);}return '';}function ib(label,cat,payload,reasonExtra){
+  function racialWhy(r){if(!r)return '';if(r.minHD&&b.hd<r.minHD)return 'needs '+r.minHD+' Hit Dice (level '+r.minHD+')';if(r.reqRace){var _o=DATA.racial[r.reqRace];var owns=b.racialTraits.indexOf(r.reqRace)>=0||!!(_o&&_o.pack&&(_o.race===b.species||_o.race===b.species2));if(!owns)return 'requires '+((r.reqRace.split(': ')[1])||r.reqRace);}return '';}function ib(label,cat,payload,reasonExtra,descr){
     if(buyQuery && label.toLowerCase().indexOf(buyQuery)<0) return '';
     const cost=priceOf(cat,payload); const warns=legalCheck(cat,payload);
     const unaff = cat!=='drawback' && cost>eco.available;
@@ -984,10 +986,10 @@ function buildBuyPanel(b,r,eco,head){
     const note = hardReason || soft;
     const _pg=(['feature','subabil','racial'].indexOf(cat)>=0&&typeof FEAT_PG!=='undefined'&&payload&&FEAT_PG[payload.v])?('PHB p.'+FEAT_PG[payload.v]):'';
     const _ttl=[note,_pg].filter(Boolean).join(' · ');
-    return '<button class="ib'+(blocked?' dis':(soft?' warn':''))+(cat==='drawback'?' draw':'')+'" title="'+esc(_ttl)+'" onclick="'+click+'">'+label+' <em>'+costlbl+'</em>'+(note?'<small class="why">'+esc(note)+'</small>':'')+'</button>';
+    return '<button class="ib'+(blocked?' dis':(soft?' warn':''))+(cat==='drawback'?' draw':'')+'" title="'+esc(_ttl)+'" onclick="'+click+'"><span class="ibhead">'+label+' <em>'+costlbl+'</em></span>'+(note?'<small class="why">'+esc(note)+'</small>':'')+(descr?'<small class="why dsc">'+esc(descr)+'</small>':'')+'</button>';
   }
   function db(name){ if(buyQuery && name.toLowerCase().indexOf(buyQuery)<0) return '';
-    return '<button class="ib draw" onclick="takeDrawback(&quot;'+esc(name)+'&quot;)">'+name+' <em>+'+DATA.drawbacks[name]+'</em><small class="why" style="color:var(--bad)">'+esc((DATA.drawbackFx&&DATA.drawbackFx[name])||'')+'</small></button>';}
+    return '<button class="ib draw" onclick="takeDrawback(&quot;'+esc(name)+'&quot;)"><span class="ibhead">'+name+' <em>+'+DATA.drawbacks[name]+'</em></span><small class="why" style="color:var(--bad)">'+esc((DATA.drawbackFx&&DATA.drawbackFx[name])||'')+'</small></button>';}
   // Greyed-out "already purchased" tile — shows up in buy panel for items already owned
   function ibOwned(label,note){
     if(buyQuery && label.toLowerCase().indexOf(buyQuery)<0) return '';
@@ -1003,10 +1005,10 @@ function buildBuyPanel(b,r,eco,head){
    ['Survivability',()=>ib('Vigor rank '+(b.hardy+1),'vigor',{to:b.hardy+1})+ib('Grit +4 HP ('+(b.tough+1)+')','grit',{to:b.tough+1})],
    ['Saving throws',()=>ABILS.map(a=>b.saves.includes(a)?ibOwned(a):ib(a,'save',{v:a})).join('')],
    ['Skills',()=>DATA.skillList.map(s=>b.skills.includes(s[0])?ibOwned(s[0]):ib(s[0],'skill',{v:s[0]})).join('')],
-   ['Expertise',()=>{if(!b.skills.length)return '<span class="hint">Buy a skill first, then you can double down with Expertise.</span>';return b.skills.map(s=>b.expertise.includes(s)?ibOwned('Expertise: '+s):ib('Expertise: '+s,'expertise',{v:s})).join('');}],
-   ['Languages',()=>ib('+1 Language ('+(b.languages+1)+')','language',{to:b.languages+1})],
+   ['Skill expertise',()=>{if(!b.skills.length)return '<span class="hint">Buy a skill first, then you can double down with Expertise.</span>';return b.skills.map(s=>b.expertise.includes(s)?ibOwned('Expertise: '+s):ib('Expertise: '+s,'expertise',{v:s})).join('');}],
    ['Tools & instruments',()=>DATA.toolList.map(x=>b.tools.includes(x)?ibOwned(x):ib(x,'tool',{v:x})).join('')+DATA.instrumentList.map(x=>b.instruments.includes(x)?ibOwned(x):ib(x,'instrument',{v:x})).join('')],
    ['Tool expertise',()=>{const _own=[].concat(b.tools||[],b.instruments||[],b.customProfs||[]);if(!_own.length)return '<span class="hint">Buy a tool or instrument first, then double down with Expertise.</span>';return _own.map(x=>(b.toolExpertise||[]).includes(x)?ibOwned('Expertise: '+x):ib('Expertise: '+x,'toolexpertise',{v:x})).join('');}],
+   ['Languages',()=>ib('+1 Language ('+(b.languages+1)+')','language',{to:b.languages+1})],
    
    ['Lineage spell-likes'+(b.lineage?' ('+b.lineage+')':''),()=>{const _lo=(DATA.lineageOf&&(DATA.lineageOf[b.species]||DATA.lineageOf[b.species2]));if(!_lo)return '<span class="hint">Your species has no lineage spell-likes.</span>';if(!b.lineage)return '<span class="hint">Choose your lineage in the Species section first.</span>';const _spells=(DATA.lineageSpells&&DATA.lineageSpells[b.lineage])||[];if(!_spells.length)return '<span class="hint">Dragonborn ancestry sets your damage type — no spell-likes to buy.</span>';return _spells.map(function(sp){const _done=(b.racialSpells||[]).includes(sp[0]);const _L=sp[2];const _need=_L>0?(DATA.hdGate[_L-1]||1):1;const _warn=b.hd<_need?'needs '+_need+' HD':'';return _done?ibOwned(sp[0]+' ('+sp[1]+' AP)'):ib(sp[0]+' ('+sp[1]+' AP)','racialspell',{v:sp[0]},_warn);}).join('');}],
    ['Weapons & armour',()=>(wp.simple?ibOwned('Simple weapons'):ib('Simple weapons','wprof',{wp:{...wp,simple:true}}))+(wp.allMartial?ibOwned('All martial'):ib('All martial','wprof',{wp:{...wp,simple:true,allMartial:true}}))+(wp.improvised?ibOwned('Improvised weapons'):ib('Improvised weapons','wprof',{wp:{...wp,improvised:true}}))+DATA.masteries.map(x=>b.masteries.includes(x)?ibOwned('Mastery: '+x):ib('Mastery: '+x,'mastery',{v:x})).join('')+(b.armour.light?ibOwned('Light armour'):ib('Light armour','armour',{v:'light'}))+(b.armour.medium?ibOwned('Medium armour'):ib('Medium armour','armour',{v:'medium'},!b.armour.light?'needs Light first':((b.stats.STR||10)<10?'needs STR 10':'')))+(b.armour.heavy?ibOwned('Heavy armour'):ib('Heavy armour','armour',{v:'heavy'},!b.armour.medium?'needs Medium first':''))+(b.armour.shield?ibOwned('Shield'):ib('Shield','armour',{v:'shield'}))+'<div class="row" style="margin-top:6px;align-items:center"><label class="l" style="font-size:11px">Worn armour</label><select onchange="setWornArmour(this.value)" style="flex:1;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink);font:inherit"><option value="">— none / unarmoured (10 + Dex) —</option>'+Object.keys(DATA.armours).map(function(an){var aa=DATA.armours[an];return '<option value="'+an+'"'+(b.wornArmour===an?' selected':'')+'>'+an+' — AC '+aa.base+' ('+aa.cat+')'+(b.armour[aa.cat]?'':' ⚠ no prof')+'</option>';}).join('')+'</select></div>'],
@@ -1027,8 +1029,38 @@ function buildBuyPanel(b,r,eco,head){
     const byCat={};avail.forEach(x=>{const c=(DATA.arts[x]||{}).cat||'Other';(byCat[c]=byCat[c]||[]).push(x);});
     const cats=CATORD.filter(c=>byCat[c]).concat(Object.keys(byCat).filter(c=>CATORD.indexOf(c)<0).sort());
     return cats.map(c=>{const items=byCat[c].slice().sort();return '<div class="atcat" style="width:100%;font-size:10px;color:var(--grey);margin:6px 0 1px;text-transform:uppercase;letter-spacing:.4px;font-weight:700">'+c+(c==='Fighting Style'?' \u2014 11 AP each (feature-granted ones are named free in the \u270E picker)':'')+'</div>'+items.map(renderArt).join('');}).join('') || '<span class="hint">No arts available.</span>';}],
-   ['Boons',()=>DATA.boonList.slice().filter(x=>(_tashaOK||!(DATA.boons[x]||{}).noncore)&&!campBarred('boons',x)).sort((a,c)=>((DATA.boons[a].hd||1)-(DATA.boons[c].hd||1))||a.localeCompare(c)).map(x=>b.boons.includes(x)?ibOwned(x+' (HD '+DATA.boons[x].hd+'+)'):ib(x+' (HD '+DATA.boons[x].hd+'+)','boon',{v:x},b.hd<DATA.boons[x].hd?('needs '+DATA.boons[x].hd+' HD'):'')).join('')],
-   ['Drawbacks (gain AP)',()=>{const {boughtOff:_bo}=activeEvents(null);return DATA.drawbackList.slice().filter(x=>!campBarred('draws',x)).sort((a,c)=>a.localeCompare(c)).map(x=>{if(_bo[x])return ibOwned(x,'Bought off (3× cost paid)');if(b.drawbacks.includes(x))return ibOwned(x,'Active drawback');return db(x);}).join('');}],
+   ['Boons',()=>{
+     const BOON_ORDER=['Combat','Defence','Skill & Utility','Social','Magic','Wild & Story','DM custom','Other'];
+     const avail=DATA.boonList.filter(x=>(_tashaOK||!(DATA.boons[x]||{}).noncore)&&!campBarred('boons',x));
+     const byCat={};avail.forEach(x=>{const c=(DATA.boons[x]||{}).cat||'Other';(byCat[c]=byCat[c]||[]).push(x);});
+     const cats=BOON_ORDER.filter(c=>byCat[c]).concat(Object.keys(byCat).filter(c=>BOON_ORDER.indexOf(c)<0).sort());
+     return cats.map(c=>{
+       const items=byCat[c].slice().sort((a,d)=>((DATA.boons[a].hd||1)-(DATA.boons[d].hd||1))||a.localeCompare(d));
+       const html=items.map(x=>{
+         const lbl=x+' (HD '+DATA.boons[x].hd+'+)';
+         return b.boons.includes(x)
+           ? ibOwned(lbl, DATA.boons[x].fx)
+           : ib(lbl,'boon',{v:x}, b.hd<DATA.boons[x].hd?('needs '+DATA.boons[x].hd+' HD'):'', DATA.boons[x].fx);
+       }).join('');
+       return html?('<div class="atcat" style="width:100%;font-size:10px;color:var(--grey);margin:6px 0 1px;text-transform:uppercase;letter-spacing:.4px;font-weight:700">'+c+'</div>'+html):'';
+     }).join('') || '<span class="hint">No boons available.</span>';
+   }],
+   ['Drawbacks (gain AP)',()=>{
+     const DRAW_ORDER=['Body','Mind','Social','Magic','Wild & Story','DM custom','Other'];
+     const {boughtOff:_bo}=activeEvents(null);
+     const avail=DATA.drawbackList.filter(x=>!campBarred('draws',x));
+     const byCat={};avail.forEach(x=>{const c=(DATA.drawbackCat&&DATA.drawbackCat[x])||'Other';(byCat[c]=byCat[c]||[]).push(x);});
+     const cats=DRAW_ORDER.filter(c=>byCat[c]).concat(Object.keys(byCat).filter(c=>DRAW_ORDER.indexOf(c)<0).sort());
+     return cats.map(c=>{
+       const items=byCat[c].slice().sort((a,d)=>a.localeCompare(d));
+       const html=items.map(x=>{
+         if(_bo[x])return ibOwned(x,'Bought off (3× cost paid)');
+         if(b.drawbacks.includes(x))return ibOwned(x,'Active drawback');
+         return db(x);
+       }).join('');
+       return html?('<div class="atcat" style="width:100%;font-size:10px;color:var(--grey);margin:6px 0 1px;text-transform:uppercase;letter-spacing:.4px;font-weight:700">'+c+'</div>'+html):'';
+     }).join('') || '<span class="hint">No drawbacks available.</span>';
+   }],
    ['Ki, Sorcery & Attunement points',()=>ib('Attunement slot '+(b.attune+1),'attune',{to:b.attune+1})
      +ib('Ki / Focus point '+(b.ki+1),'ki',{to:b.ki+1})
      +ib('Sorcery point '+(b.sorcery+1),'sorcery',{to:b.sorcery+1},(!_hasDisc('Sorcerer')?'needs the Sorcerer discipline':((b.hd||1)<2?'needs 2 Hit Dice (T2)':'')))

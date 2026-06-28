@@ -1,0 +1,1205 @@
+<!--**PACT-Live-Char-Sheet v0.104.html**-->
+
+<!doctype html>
+<!--
+═══════════════════════════════════════════════════════════════════════════════
+ AI SESSION CONTEXT — READ FIRST  (PACT tools · v0.309)
+ Purpose: a fresh AI session can orient from this block alone, no re-briefing.
+ Full detail: see  PACT-CONTEXT.md  (authoritative — archive/ is history, do not act on it)
+ Rules source of truth:  PACT-Players-Guide-v0.303.docx
+═══════════════════════════════════════════════════════════════════════════════
+ PROJECT
+   PACT (Points · Aptitudes · Coin · Time) — a points-buy advancement system for
+   2024 (5.5e) D&D, by John Chow / DragonReach Forge. Characters earn Advancement
+   Points (AP) and buy abilities one at a time off escalating price ladders.
+   Two golden rules: (1) nothing is free; (2) prices are read "before the increase".
+
+ THIS FILE = THE LIVE CHARACTER SHEET (the player's in-play tool)
+   Event-sourced: an append-only LOG of AP awards + purchases (prices freeze at the
+   moment of purchase). Has undo/redo, a time-travel slider, import/export JSON, a
+   buy panel with affordability + rules-legality checks, a printable sheet overlay,
+   an A4 sheet, and an AI portrait-prompt builder. Imports the generator's -livesheet.json.
+
+ SIBLING FILE = PACT-CharGen-Webtool*.html (the builder)
+   Spend a DM-set AP budget against the price list to assemble a hero, then export
+   a "-livesheet.json" that this tool imports to begin in-play tracking.
+
+ ⚠ SHARED, DUPLICATED CODE — THE #1 THING TO GET RIGHT
+   These are copy-pasted into BOTH html files and must stay byte-for-byte in sync:
+     • compute(build)            — the pure AP cost engine (returns total/lines/warnings/hp/ac…)
+     • the DATA {...} blob        — every ladder, table, class, feature, boon, drawback, spell rule
+     • renderCharSheet(b,r,ctx)   — the shared fillable character sheet
+     • buildPortraitPrompts(b)    — AI portrait-prompt builder
+     • the manual-field layer     — hydrateSheet / csSave / SHEET_TOOL  (this file sets SHEET_TOOL='livesheet')
+   RULE: any change to the engine or DATA must be mirrored in the other file.
+
+ VERSIONING
+   DATA.version (currently "v0.309") is CANONICAL: stamped onto saved/exported JSON
+   and compared on import (loadedRules vs RULES) to drive the "frozen prices /
+   reprice drift" banner. Keep any cosmetic version label matching DATA.version.
+
+ HARD CONSTRAINTS (do not break)
+   • Single self-contained .html: inline CSS+JS, NO external deps, NO network/CDN, no build step.
+     Must run by opening the file directly (file://).
+   • Prices freeze at purchase; rules-version changes never retro-change paid costs (grandfathered).
+   • State persists to localStorage (KEY='pactLiveSheet'; manual fields under 'pactCharSheetManual:livesheet').
+     Keep the event-LOG / saved-JSON schema backward-compatible.
+   • compute() must match the Players-Guide ladders (HD ladder; Ability Increase = 4 + |mod before|;
+     Vigor cap = CON mod; Tiers T1–T7 Hit-Dice gates; origin discount vs cross-class surcharge;
+     spell stack Foundation→Rank→cantrips→slots→known; drawbacks soft-cap ~12 AP).
+
+ WHEN YOU EDIT: mirror engine/DATA changes into BOTH files, bump DATA.version in both,
+   keep the cosmetic version labels in sync, and preserve the no-dependency constraint.
+═══════════════════════════════════════════════════════════════════════════════
+-->
+<html><head><meta charset="utf-8"><title>PACT — Live Character Sheet (prototype)</title><style>
+body{font-family:'Segoe UI',Calibri,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0;font-size:13px}
+.top{background:var(--navy);color:#fff;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:50}
+.top h1{margin:0;font-size:18px}.top .v{opacity:.8;font-size:11px}
+.bar{background:#16294d;color:#cfe0f7;font-size:11px;padding:4px 16px}
+.btn{background:var(--blue);color:#fff;border:0;border-radius:6px;padding:6px 10px;font:inherit;font-weight:700;cursor:pointer}
+.btn.g{background:var(--card);color:var(--blue);border:1px solid var(--blue)}
+.eco{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.ecobox{background:var(--card);border-radius:8px;padding:4px 12px;text-align:center;min-width:78px}
+.ecobox b{font-size:18px;color:var(--navytx);display:block;line-height:1}.ecobox span{font-size:9px;color:var(--grey);text-transform:uppercase}
+.ecobox.drift b{font-size:13px;color:var(--good)}
+.layout{display:grid;grid-template-columns:300px 1fr 300px;gap:12px;padding:12px}
+@media(max-width:1000px){.layout{grid-template-columns:1fr}}
+#lmobar{display:none}
+@media(max-width:600px){
+ body{font-size:14px}
+ .top{flex-wrap:wrap}.top h1{font-size:16px}
+ .eco{width:100%;margin-left:0;gap:6px}.ecobox{flex:1 1 44%;min-width:0}  /* M: 2-per-row so each AP figure is readable */
+ #lmobar{cursor:pointer}
+ .layout{padding:10px;padding-bottom:56px;gap:10px}
+ /* M1: ability + stat rows wrap to 3 across so each box is readable (6-across is unusable on a phone) */
+ .abrow,.kpis,.shabrow,.shkpis{grid-template-columns:repeat(3,1fr)}
+ /* M2: bigger touch targets for buy buttons and the collapsible group headers */
+ .ib{font-size:13px;padding:9px 11px;min-height:42px;justify-content:center}.ib em{font-size:13px}
+ .bg h4{padding:9px 2px;font-size:12px;min-height:32px}
+ .bgbody{gap:8px}
+ .btn{padding:9px 13px}
+ .led{font-size:12px}
+ /* M3: keep the purchase search + Affordable-only toggle pinned while scrolling the long buy list */
+ .card{position:relative}
+ #buysearch{position:sticky;top:0;z-index:7;box-shadow:0 2px 6px rgba(31,56,100,.12)}
+ #lmobar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:60;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;background:var(--navy);color:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.3)}
+ #lmobar b{font-size:18px}#lmobar span{font-size:10px;color:#cfe0f7;text-align:right}
+}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
+.card h3{margin:0 0 6px;color:var(--navytx);font-size:13px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.shname{font-size:20px;font-weight:800;color:var(--navytx)}.shsub{color:var(--grey);margin-bottom:6px;font-size:12px}
+.abrow{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin:6px 0}
+.abx{border:1px solid var(--line);border-radius:8px;text-align:center;padding:4px 0}.abx b{font-size:9px;display:block}.abx span{font-size:18px;font-weight:800}.abx i{font-style:normal;font-size:10px;color:var(--grey);display:block}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin:6px 0}
+.kp{background:var(--lt);border-radius:7px;text-align:center;padding:5px 0}.kp b{font-size:16px;color:var(--navytx);display:block}.kp span{font-size:8px;color:var(--grey);text-transform:uppercase}
+.seg{font-size:12px;margin:3px 0}
+.itip[title]{cursor:help}
+.seg .itip[title]{border-bottom:1px dotted currentColor}
+.abx.itip{cursor:help}
+table.led{width:100%;border-collapse:collapse;font-size:11.5px}.led th{background:var(--lt);color:var(--navytx);text-align:left;padding:2px 5px}
+.vtag{display:inline-block;font-size:8.5px;font-weight:700;color:var(--blue);background:var(--inp);border:1px solid var(--line);border-radius:6px;padding:0 4px;vertical-align:middle}
+.led td{padding:2px 5px;border-bottom:1px solid var(--line)}.led td:nth-child(3){text-align:right;font-weight:700}
+.led tr.aw td{color:var(--good)}.led tr.rfnd td{color:#8a6d00}.led tr.dead td{color:var(--grey);text-decoration:line-through}
+.led tr.warnrow td:nth-child(2){color:var(--bad)}
+.bg{margin-bottom:8px}.bg h4{margin:6px 0 3px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--teal)}
+.ib{display:inline-block;background:var(--inp);border:1px solid var(--line);border-radius:6px;padding:3px 7px;margin:2px;font:inherit;font-size:11.5px;cursor:pointer;color:var(--navytx)}
+.ib em{font-style:normal;color:var(--blue);font-weight:800;margin-left:4px}
+.ib.dis{opacity:.4;cursor:not-allowed}.ib.draw{background:var(--badbg);color:var(--bad)}.ib.draw em{color:var(--bad)}
+.x{background:var(--lt);border:0;border-radius:5px;color:#900;font-size:10px;padding:1px 6px;cursor:pointer}
+#tray{font-size:11.5px}#tray ul{margin:4px 0 0;padding-left:16px}#tray .ok{color:var(--good)}#tray b{color:var(--bad)}
+#tray li{color:var(--bad)}
+.hint{color:var(--grey);font-style:italic;font-size:11px}
+.tt{width:100%}
+#flash{display:none;position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:#7a0000;color:#fff;padding:8px 14px;border-radius:8px;font-weight:700;z-index:99}
+/* collapsible buy groups + search + greyed-with-reason buttons */
+#buysearch{width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid var(--line);border-radius:7px;font:inherit;margin-bottom:8px}
+.bg h4{margin:8px 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--teal);cursor:pointer;user-select:none;border-bottom:1px solid var(--line);padding-bottom:2px}
+.bg h4::before{content:"▾  ";font-size:9px;color:var(--grey)}.bg.clp h4::before{content:"▸  "}
+.bgbody{display:flex;flex-wrap:wrap;gap:4px}
+.bgcat{margin:0 0 10px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--card)}
+.cath{margin:0;padding:8px 10px;font-size:12px;font-weight:800;letter-spacing:.3px;color:var(--navytx);background:linear-gradient(180deg,#eef3fb,#e4ecf8);cursor:pointer;user-select:none;border-bottom:1px solid var(--line)}
+.cath::before{content:"▾  ";font-size:10px;color:var(--teal)}.bgcat.clp .cath::before{content:"▸  "}.bgcat.clp .cath{border-bottom:0}
+.catbody{padding:6px 9px 8px}.catbody .bg{margin-bottom:4px}
+body[data-theme="dark"] .cath{background:linear-gradient(180deg,#1c2740,#16203a);color:var(--ink)}
+.ib{display:inline-flex;flex-direction:column;align-items:flex-start;background:var(--inp);border:1px solid var(--line);border-radius:7px;padding:4px 8px;font:inherit;font-size:11.5px;cursor:pointer;color:var(--navytx);line-height:1.2}
+.ib em{font-style:normal;color:var(--blue);font-weight:800}
+.ib .why{font-size:9.5px;color:#8a6d00;font-style:italic;margin-top:1px}
+.ib.dis{opacity:.55;background:var(--lt);border-style:dashed;cursor:help}.ib.dis em{color:var(--grey)}
+.ib.warn{background:var(--warnbg);border-color:var(--warnbd)}.ib.warn .why{color:#b35a00}
+.ib.draw{background:var(--badbg);color:var(--bad)}.ib.draw em{color:var(--bad)}
+/* character-sheet overlay (like the chargen) */
+:root{--navy:#1F3864;--blue:#2E5496;--teal:#2F6F6A;--lt:#DEE7F4;--ink:#222;--grey:#666;--line:#C3D0E6;--good:#2E7D32;--bad:#C00000;--inp:#EAF1FB;--badbg:#F7C5C5;--bg:#F4F7FC;--card:#fff;--navytx:var(--navy);--warnbg:var(--warnbg);--warnbd:var(--warnbd)}
+/* ---- alternate themes (set via data-theme on <body>) ---- */
+body[data-theme="dark"]{--navy:#0e1117;--blue:#6ea8ff;--teal:#5bb39f;--lt:#2d3340;--ink:#e7e9ee;--grey:#9aa3b2;--line:#3a4150;--good:#5fce6a;--bad:#e08585;--inp:#2f3542;--badbg:#532230;--bg:#15181e;--card:#252a33;--navytx:#9fc0ff;--warnbg:#3a3320;--warnbd:#5e4e1f;}
+body[data-theme="dnd"]{--navy:#5a1e1b;--blue:#7a2a23;--teal:#6a5520;--lt:#e7d8b6;--ink:#2b2018;--grey:#6e5d44;--line:#c9b489;--good:#3f6f2a;--bad:#9c2b1e;--inp:#efe4c8;--badbg:#e6c2b0;--bg:#efe6d2;--card:#f8f2e2;}
+body[data-theme="royal"]{--navy:#3b2a6b;--blue:#5a3fa0;--teal:#3f7a8c;--lt:#e4dcf4;--ink:#241a3a;--grey:#6a5d86;--line:#cbbfe8;--good:#2E7D32;--bad:#b3245b;--inp:#efeafb;--badbg:#f3c9d8;--bg:#f3f0fa;--card:#fff;}
+body[data-theme="forest"]{--navy:#1f3d2e;--blue:#2f6b4a;--teal:#3a7d5a;--lt:#d7e8da;--ink:#1c2620;--grey:#5b6b5f;--line:#aecbb4;--good:#2E7D32;--bad:#b5462e;--inp:#e6f1e7;--badbg:#f0cbb7;--bg:#eef4ec;--card:#fff;}
+/* dark-mode legibility (LS) */
+body[data-theme="dark"] select,body[data-theme="dark"] input[type=number],body[data-theme="dark"] input[type=text]{color:var(--ink);background:var(--inp)}
+body[data-theme="dark"] option,body[data-theme="dark"] optgroup{background:var(--card);color:var(--ink)}
+body[data-theme="dark"] .ib .why,body[data-theme="dark"] .led tr.rfnd td{color:#d9bd76}
+body[data-theme="dark"] .ib.warn .why{color:#e6b566}
+body[data-theme="dark"] .spname .bbadge,body[data-theme="dark"] .bondbox .bbk{color:#dcc48e}
+body[data-theme="dark"] .shtag{color:#bcabea}
+body[data-theme="dark"] .x{color:#ff8a8a}
+body[data-theme="dark"] .slotcell.empty .n{color:var(--grey)}
+#sheetview{display:none;position:fixed;inset:0;background:var(--bg);z-index:60;overflow:auto;padding:14px}
+.shtop{position:sticky;top:0;background:var(--navy);color:#fff;padding:8px 14px;display:flex;align-items:center;gap:12px;border-radius:8px;margin-bottom:12px}
+.shtop b{font-size:15px}
+.shhead{margin-bottom:10px}.shname{font-size:22px;font-weight:800;color:var(--navytx)}.shsub{color:var(--grey);font-size:12.5px}
+.shcols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.shcols2{display:grid;grid-template-columns:1fr 2fr;gap:12px;align-items:start}@media(max-width:800px){.shcols{grid-template-columns:1fr}}
+.shcol{display:flex;flex-direction:column;gap:10px}
+.shbox{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--card)}
+.shbox h5{margin:0 0 4px;color:var(--blue);font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--line);padding-bottom:2px}
+.shabrow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.shab{background:var(--card);border:1.5px solid var(--line);border-radius:10px;padding:5px 2px 4px;text-align:center}
+.shab .shk{font-size:9px;font-weight:800;letter-spacing:.6px}.shab .shsc{font-size:22px;font-weight:800;line-height:1;color:var(--ink)}
+.shab .shmod{display:inline-block;min-width:26px;margin-top:3px;font-size:12px;font-weight:700;border:1.5px solid var(--line);border-radius:12px;padding:0 5px;background:var(--bg);color:var(--ink)}
+.shrow{font-size:11.5px;display:flex;justify-content:space-between;color:var(--grey);padding:1.5px 0;border-bottom:1px solid var(--line)}.shrow.on{color:var(--ink)}.shrow i{color:var(--grey);font-style:italic}.shrow span{font-weight:700}
+.shsmall{font-size:11.5px;line-height:1.55}
+.shkpis{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.shkpi{background:var(--lt);border:1px solid var(--line);border-radius:8px;padding:6px 4px;text-align:center}.shkpi b{font-size:19px;color:var(--navytx);display:block;line-height:1}.shkpi span{font-size:9px;color:var(--grey);text-transform:uppercase}
+.shspell{font-size:11px;border-bottom:1px solid var(--line);padding:4px 0}
+/* ===== v0.081 spellcasting-section redesign + bonds ===== */
+.spellsec{margin-top:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);overflow:hidden}
+.spellsec>.sphd{background:var(--navy);color:#fff;padding:4px 9px;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:700}
+.spbody{padding:8px 9px}
+.spdisc{margin-bottom:9px}.spdisc:last-child{margin-bottom:0}
+.spname{font-weight:800;color:var(--navytx);font-size:12.5px}
+.spname .bbadge{display:inline-block;margin-left:6px;font-size:9px;font-weight:700;color:#7A4E00;background:var(--lt);border:1px solid var(--line);border-radius:9px;padding:0 6px;vertical-align:middle}
+.spstrip{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:5px 0 6px}
+.spstat{border:1px solid var(--line);border-radius:6px;background:var(--bg);text-align:center;padding:3px 2px}
+.spstat small{display:block;font-size:8px;text-transform:uppercase;letter-spacing:.3px;color:var(--grey)}
+.spstat b{font-size:14px;color:var(--navytx);line-height:1.15}
+.slotgrid{display:grid;grid-template-columns:repeat(9,1fr);gap:3px;margin-bottom:7px}
+.slotcell{border:1px solid var(--line);border-radius:5px;background:var(--bg);text-align:center;padding:2px 0}
+.slotcell .lv{font-size:8px;color:var(--grey);font-weight:700}
+.slotcell .n{font-size:13px;font-weight:800;color:var(--navytx)}
+.slotcell.empty{background:var(--lt)}.slotcell.empty .n{color:#c2c9d6;font-weight:600}
+.spcols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;align-items:start}
+.splevel{margin-bottom:5px}
+.splevel .lh{font-size:9.5px;font-weight:800;color:var(--blue);border-bottom:1px solid var(--line);padding-bottom:1px;margin-bottom:2px;display:flex;justify-content:space-between}
+.splevel .lh .sl{font-size:8.5px;color:var(--grey);font-weight:600}
+.sprow{display:flex;align-items:center;gap:5px;font-size:11px;padding:1px 0}
+.sprow .bul{color:var(--good);font-size:9px}
+.sprow.cant .bul{color:#00838f}
+.sprow.ph{color:#9aa3b5;font-style:italic}.sprow.ph .bul{color:#cfd6e2}
+.phnote{font-size:9px;color:#9aa3b5;font-style:italic;margin-top:2px}
+.splegend{font-size:9px;color:var(--grey);padding:2px 9px 0}
+.shtag{display:inline-block;font-size:8px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;color:#5a4a8a;background:var(--lt);border:1px solid var(--line);border-radius:8px;padding:0 5px;vertical-align:middle;margin-left:5px}
+.bondbox .bondline{font-size:11.5px;padding:1.5px 0}
+.bondbox .bbk{display:inline-block;font-size:9px;font-weight:700;color:#7A4E00;background:var(--lt);border:1px solid var(--line);border-radius:9px;padding:0 6px;margin-right:5px}
+@media(max-width:760px){.spcols{grid-template-columns:1fr 1fr}}
+@media print{.spcols{grid-template-columns:1fr 1fr 1fr !important}.slotgrid{grid-template-columns:repeat(9,1fr) !important}.spellsec{break-inside:avoid}}
+.shledger{width:100%;border-collapse:collapse;font-size:10.5px}.shledger td{padding:1px 3px;border-bottom:1px solid var(--line)}.shledger td:last-child{text-align:right;font-weight:700}.shledger tr.tot td{border-top:2px solid var(--navy);font-weight:800;color:var(--navytx)}
+.grow{flex:1}
+@media print{.shcols{grid-template-columns:repeat(3,1fr) !important}.shcols2{grid-template-columns:1fr 2fr !important}.shrow{font-size:10.5px}.top,.bar,.layout,.shtop,#explainview,#portraitview{display:none !important}#sheetview{position:static;padding:0}
+ body,body[data-theme]{--navy:#1F3864;--blue:#2E5496;--teal:#2F6F6A;--lt:#DEE7F4;--ink:#222;--grey:#666;--line:#C3D0E6;--bg:#fff;--card:#fff;background:var(--card)!important;color:#222!important}}
+
+/* ===== fillable character sheet (shared) ===== */
+.cs-head{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.cs-fld{display:flex;flex-direction:column;gap:1px}
+.cs-fld label{font-size:8.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--grey);font-weight:700}
+.cs-in{border:0;border-bottom:1px solid var(--line);background:transparent;font:inherit;color:var(--ink);padding:2px 3px;width:100%;min-width:0}
+.cs-in:focus{outline:0;border-bottom:1.5px solid var(--blue);background:var(--inp)}
+.cs-num{width:52px;text-align:center}
+.cs-grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.cs-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+/* attacks / weapons table */
+.wtbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:2px}
+.wtbl th{background:var(--lt);color:var(--navytx);font-size:8.5px;text-transform:uppercase;letter-spacing:.4px;padding:3px 2px;text-align:left}
+.wtbl td{border-bottom:1px solid var(--line);padding:0}
+.wtbl td input{border:0;background:transparent;width:100%;font:inherit;font-size:11px;padding:3px 4px;color:var(--ink)}
+.wtbl td input:focus{outline:0;background:var(--inp)}
+.wtbl col.cw-atk{width:74px}.wtbl col.cw-dmg{width:120px}
+/* HP + combat */
+.cs-hpbox{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px}
+.cs-hp{border:1px solid var(--line);border-radius:8px;padding:5px;text-align:center}
+.cs-hp label{font-size:8.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--grey);font-weight:700;display:block}
+.cs-hp .cs-in{text-align:center;font-size:18px;font-weight:800;border-bottom:0}
+.cs-hp.big{grid-column:1 / span 2}
+.dsv{display:flex;gap:10px;justify-content:center;align-items:center;font-size:10px;margin-top:3px}
+.dsv b{font-size:8.5px;color:var(--grey);text-transform:uppercase}
+.dsv input{width:14px;height:14px;vertical-align:middle}
+/* lined free-text areas */
+.cs-ta{width:100%;min-height:54px;border:1px solid var(--line);border-radius:6px;background:transparent;font:inherit;color:var(--ink);padding:5px 6px;resize:vertical;line-height:1.7}
+.cs-ta:focus{outline:0;border-color:var(--blue)}
+.cs-coins{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:5px}
+.cs-coin{border:1px solid var(--line);border-radius:6px;padding:2px;text-align:center}
+.cs-coin label{font-size:8px;color:var(--grey);display:block;font-weight:700}
+.cs-coin input{border:0;background:transparent;width:100%;text-align:center;font:inherit;font-weight:700;color:var(--ink)}
+.cs-coin input:focus{outline:0;background:var(--inp)}
+.cs-insp{display:flex;align-items:center;gap:6px;font-size:11px}
+.cs-insp input[type=text]{flex:1}
+@media print{
+  .cs-in,.wtbl td input{border-bottom:1px solid #999 !important;background:transparent !important}
+  .cs-ta,.cs-hp,.cs-coin{border:1px solid #999 !important}
+  .wtbl th{background:var(--lt) !important}
+}
+@media(max-width:600px){
+  .cs-head{grid-template-columns:1fr}
+  .cs-grid3{grid-template-columns:1fr 1fr}
+  .cs-hpbox{grid-template-columns:1fr 1fr}
+}
+/* ── info modal ── */
+#infoModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center}
+#infoModal.open{display:flex}
+#infoBox{background:var(--card,#fff);color:var(--ink,#222);border-radius:12px;padding:24px 28px;max-width:560px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:13.5px;line-height:1.55;position:relative}
+#infoBox h2{margin:0 0 12px;font-size:16px;color:var(--blue,#2E5496)}
+#infoBox h3{margin:14px 0 4px;font-size:13px;color:var(--teal,#2F6F6A);text-transform:uppercase;letter-spacing:.04em}
+#infoBox p{margin:0 0 8px}
+#infoBox ul{margin:0 0 8px;padding-left:18px}
+#infoBox li{margin:2px 0}
+#infoBox .close-btn{position:absolute;top:10px;right:14px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--grey,#666);line-height:1}
+#infoBox .tag{display:inline-block;background:var(--lt,#DEE7F4);color:var(--blue,#2E5496);border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-right:4px}
+
+/* ── AP colour key ── */
+.aplegend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;margin:4px 0 8px;padding:5px 8px;background:var(--lt);border-radius:6px;line-height:1.4}
+.aplegend span{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.aplegend .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.aplegend .g{background:#14501f}.aplegend .r{background:#7a0000}.aplegend .k{background:#444}
+#apFloat{position:fixed;top:10px;right:14px;z-index:1500;display:flex;align-items:baseline;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:6px 16px;box-shadow:0 3px 14px rgba(0,0,0,.22);font-family:var(--font);cursor:default;transition:transform .12s ease}#apFloat b{font-size:22px;font-weight:800;color:var(--navytx);line-height:1}#apFloat span{font-size:10px;font-weight:600;color:var(--grey);text-transform:uppercase;letter-spacing:.06em}#apFloat.neg b{color:var(--bad)}#apFloat.flash{transform:scale(1.14)}@media print{#apFloat{display:none!important}}.moremenu{display:none;position:absolute;right:0;top:calc(100% + 5px);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:9px;box-shadow:0 8px 28px rgba(0,0,0,.28);padding:6px;z-index:3000;min-width:215px;text-align:left}.moremenu.open{display:block}.moremenu .mi{display:block;width:100%;text-align:left;background:none;border:0;color:var(--ink);padding:7px 10px;border-radius:6px;font:inherit;font-size:13px;cursor:pointer}.moremenu .mi:hover{background:var(--lt)}.moremenu .mi-theme{display:flex;align-items:center;gap:6px;padding:6px 10px 8px;border-bottom:1px solid var(--line);margin-bottom:4px}.moremenu .mi-theme select{flex:1}.dmtog{background:none;border:0;color:#cfe0f7;font:inherit;font-weight:700;cursor:pointer;padding:0}.eco{display:block}.ecoline{display:flex;flex-wrap:wrap;align-items:center;gap:5px 18px;background:#16294d;color:#cfe0f7;padding:9px 16px;font-size:13px}.ecoline b{color:#fff;font-size:16px}.ecoline .ed{color:#9fc0ff;font-size:12px}.ecoline .drift{color:#7fd98a;font-size:12px}.ecoline .swapchip{margin-left:auto;background:rgba(60,200,120,.22);border:1px solid rgba(120,230,170,.5);border-radius:12px;padding:2px 11px;font-size:12px;font-weight:700;color:#d6ffe6;white-space:nowrap}.ecoline .swapchip+.campchip{margin-left:8px}
+.ecoline .campchip{margin-left:auto;display:inline-flex;align-items:center;gap:5px;max-width:46vw;background:rgba(255,255,255,.13);border-radius:12px;padding:3px 13px;font-size:12px;font-weight:700;color:#fff;white-space:nowrap}.ecoline .campchip .cc-lbl{font-weight:600;opacity:.82;text-transform:uppercase;letter-spacing:.04em;font-size:10.5px}.ecoline .campchip .cc-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}@media(max-width:880px){.ecoline .campchip{max-width:60vw;padding:3px 10px}.ecoline .campchip .cc-lbl{display:none}.top{gap:5px;padding:8px 10px}.top h1{font-size:15px}.top .v{display:none}.top .btn .bl{display:none}.top .btn{padding:6px 9px;font-size:15px}.top #themesel{min-width:0;width:84px}}</style></head><body>
+<div id="apFloat" title="AP available (earned − spent) — updates live as you buy, undo, or gain awards"><b id="apFloatN">0</b><span>AP left</span></div>
+<div class="top"><h1>🧬 PACT — Live Character Sheet</h1><span class="v" id="verline">event-sourced · prices freeze at purchase</span>
+<button class="btn g" onclick="undo()" title="Undo">↶ <span class="bl">Undo</span></button><button class="btn g" onclick="redo()" title="Redo">↷ <span class="bl">Redo</span></button>
+<button class="btn g" onclick="exportJSON()" title="Export character to a file">⬇ <span class="bl">Export</span></button>
+<button class="btn g" onclick="document.getElementById('imp').click()" title="Import a character file">⬆ <span class="bl">Import</span></button>
+<input type="file" id="imp" style="display:none" accept=".json" onchange="if(this.files[0])importJSON(this.files[0]);this.value=''">
+<button class="btn g" onclick="toggleSheet()" title="Toggle the printable sheet">📋 <span class="bl">Sheet</span></button>
+<span style="position:relative;display:inline-block"><button class="btn g" onclick="toggleMore(event)" title="More tools &amp; theme">⋯ <span class="bl">More</span></button><div id="moremenu" class="moremenu"><span class="mi-theme">🎨 <select id="themesel" onchange="setTheme(this.value)" style="min-width:96px"><option value="">Default</option><option value="dark">Dark mode</option><option value="dnd">D&amp;D / Parchment</option><option value="royal">Royal</option><option value="forest">Forest</option></select></span><button class="mi" onclick="closeMore();openNames()">✎ Name spells &amp; languages</button><button class="mi" onclick="closeMore();openSpellBrowser()">🔍 Spell browser</button><button class="mi" id="miSpellTog" onclick="closeMore();toggleSheetSpell()">🚫 Hide spellcasting on sheet</button><button class="mi" onclick="closeMore();openCampaign()">🛡 Campaign</button><button class="mi" onclick="closeMore();openBonds()">⛓ Bonds</button><button class="mi" onclick="closeMore();resetAll()">↺ Reset</button><button class="mi" onclick="closeMore();showInfo()">&#x2139;&#xFE0F; Info</button></div></span>
+</div>
+<div class="eco" id="eco"></div>
+<div id="sheetview"><div class="shtop"><b>📋 Character Sheet</b><button class="btn" onclick="genPortraitFor(foldBuild(null))">📷 AI Portrait</button><button class="btn" onclick="window.print()">🖨 Print</button><button class="btn g" onclick="toggleSheet()">✕ Close</button></div><div id="sheetbody"></div></div>
+<div class="bar"><button onclick="toggleDM()" id="dmtoggle" class="dmtog">🛠 DM tools ▾</button><span id="dmcontent" style="display:inline">
+  <button class="btn" style="padding:3px 8px" onclick="(function(){var a=prompt('Award how many AP?','6');if(a==null||a==='')return;if(+a<0){alert('Award amount cannot be negative.');return;}var dt=new Date();var ds=String(dt.getFullYear()%100).padStart(2,'0')+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');var n=prompt('What for? (logged with today\'s date)',ds);award(a,n||'');})()">+ Award AP</button>
+  <button class="btn" style="padding:3px 8px" title="Grant bonus AP as an in-play discount/reward" onclick="(function(){var a=prompt('Discount — bonus AP to grant?','2');if(a==null||a==='')return;var n=prompt('Why? (e.g. found a mentor)','');award(a,'Discount: '+(n||'in-play'),true);})()">+ Discount</button>
+  <button class="btn" style="padding:3px 8px" title="Generate an AP grant code to send to a player" onclick="makeGrant()">⎘ AP code</button>
+  <button class="btn" style="padding:3px 8px" title="Redeem an AP grant code from your DM" onclick="redeemGrant()">⎀ Redeem</button>
+  <button class="btn" style="padding:3px 8px" onclick="(function(){var n=prompt('Character name?');if(n!=null)emit({type:'name',name:n,label:'Named: '+n});})()">✎ Rename</button>
+  <span id="histwrap" style="margin-left:14px">Time-travel: <input type="range" min="0" value="0" step="1" id="tt" class="tt" style="width:240px;vertical-align:middle"> <span id="ttlabel"></span></span></span>
+</div>
+<div class="layout">
+  <div class="card"><h3>Buy / progress</h3><input id="buysearch" placeholder="search purchases… (e.g. skill, rage, vigor)" oninput="setBuyQuery(this.value)"><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin:0 0 8px"><input type="checkbox" onchange="setAffordOnly(this.checked)"> Affordable only (hide what I can't afford)</label><label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;margin:0 0 8px"><input type="checkbox" onchange="setHideUnavail(this.checked)"> Hide unavailable (hide what I can't buy yet)</label><div id="buy"></div></div>
+  <div class="card"><h3>Character</h3><div id="sheet"></div>
+    <h3 style="margin-top:10px">Needs review</h3><div id="tray"></div></div>
+  <div class="card"><h3>History &amp; ledger</h3>
+<div class="aplegend" title="Colour key for the History &amp; ledger">
+  <span><span class="dot g"></span>AP awarded</span>
+  <span><span class="dot r"></span>Warning / drawback cost</span>
+  <span><span class="dot k"></span>Standard purchase</span>
+</div><div id="ledger"></div></div>
+</div>
+<div id="lmobar" title="Tap to jump to the buy panel" onclick="var s=document.getElementById('buysearch');if(s)s.scrollIntoView({behavior:'smooth'});"><b>—</b><span></span></div>
+<div id="flash"></div>
+<script type="module">
+  // Single source of truth: load the shared rules engine and publish its API as
+  // globals so the (classic) Live-Sheet UI below keeps working unchanged.
+  // __PACT exposes the event-sourcing helpers (foldBuild/economy/activeEvents).
+  try {
+    const engine = await import("../js/engine.js");
+    window.__PACT = engine;
+    Object.assign(window, {
+      DATA: engine.DATA, compute: engine.compute,
+      rebuildStateFromEvents: engine.rebuildStateFromEvents,
+      baseBuild: engine.baseBuild, MUT: engine.MUT
+    });
+    window.__engineReady = true;
+    document.dispatchEvent(new Event('engine-ready'));
+  } catch (err) {
+    console.error("[PACT] Could not load js/engine.js — the sheet cannot run. " +
+      "Serve over http (Live Server), not file://, and check the path ../js/engine.js.", err);
+    document.dispatchEvent(new Event('engine-error'));
+  }
+</script>
+<script>
+
+
+function _mod(s){return Math.floor((s-10)/2);}
+function _abilName(a){return a;}
+/* ===== spell picker engine (shared, parity-critical) ===== */
+function _spLvKey(l,n){return l+'|'+n;}
+function _spMaxCastLv(rank,hd){var m=0;for(var L=1;L<=9;L++){if(rank>=L&&hd>=(DATA.hdGate[L-1]||99))m=L;}return m;}
+function _spSubclassesFor(b,cls){var out=[];if(b.freeSub&&b.freeSub[cls])out.push(b.freeSub[cls]);
+ (b.subAbilities||[]).forEach(function(k){var p=String(k).split('|');if(p[0]===cls&&out.indexOf(p[1])<0)out.push(p[1]);});return out;}
+function _spClassesOf(name){for(var i=0;i<(DATA.spells||[]).length;i++){if(DATA.spells[i].n===name)return DATA.spells[i].c;}return null;}
+// addable spell pool for a discipline: base class list (by castable level) UNION subclass grants (incl off-list).
+function eligibleSpells(b,ti,di){
+ var t=(b.traditions||[])[ti];if(!t)return null;
+ var d=(t.disciplines||[])[di];if(!d||!d.name||d.name==='(none)')return null;
+ var cls=d.name,prepared=(DATA.prepared||[]).indexOf(cls)>=0;
+ var hd=Math.max(1,Math.min(20,+b.hd||1)),rank=t.rank||0,maxLv=_spMaxCastLv(rank,hd);
+ var byLevel={},seen={};for(var L=0;L<=9;L++)byLevel[L]=[];
+ (DATA.spells||[]).forEach(function(s){if(s.c.indexOf(cls)>=0){var k=_spLvKey(s.l,s.n);if(!seen[k]){seen[k]=1;
+   byLevel[s.l].push({name:s.n,level:s.l,castable:(s.l===0||s.l<=maxLv),off:false});}}});
+ (b.subSpellBundles||[]).forEach(function(_bk){var _pp=String(_bk).split('|');if(_pp[0]!==cls)return;var sub=_pp[1],_terr=_pp[2]||'';var g=((DATA.spellGrants||{}).subclassSpells||{})[cls+': '+sub+(_terr?' ('+_terr+')':'')];
+   if(g&&g.spells)g.spells.forEach(function(sp){var L=sp.spellLevel,k=_spLvKey(L,sp.name);if(!seen[k]){seen[k]=1;
+     var cl=_spClassesOf(sp.name);byLevel[L].push({name:sp.name,level:L,castable:(L===0||L<=maxLv),off:(cl?cl.indexOf(cls)<0:true),sub:sub,granted:true});}});});
+ for(var L2=0;L2<=9;L2++)byLevel[L2].sort(function(a,c){return a.name<c.name?-1:(a.name>c.name?1:0);});
+ return {cls:cls,prepared:prepared,maxLv:maxLv,rank:rank,hd:hd,byLevel:byLevel};
+}
+
+// the character's AP-equivalent level: the highest level whose budget-table value is <= ap (0 = below level 1)
+function apLevel(ap){var lv=0;for(var L=1;L<=20;L++){if((DATA.levelAP[L]||1e9)<=(+ap||0))lv=L;}return lv;}
+
+
+const $=id=>document.getElementById(id); const ABILS=["STR","DEX","CON","INT","WIS","CHA"];
+const sgn=x=>(x>=0?'+':'')+x;
+// ---------------- state: append-only event log ----------------
+let LOG=[];        // [{seq,ts,type,...}]
+let REDO=[];       // popped events for redo
+let SEQ=1;
+let __charId=null;                                   // stable per-character id for hand-typed sheet fields
+function currentCharId(){if(!__charId)__charId=genCharId();return __charId;}
+let viewAt=null;   // time-travel: render state as-of this many events (null = head)
+let RULES='';   // current rules version of this build of the tool
+let loadedRules=null;   // rules version stamped on a loaded file/localStorage; null until an older-version build is imported. Dormant while only the current version exists.
+
+   // the Live Sheet tracks an in-PLAY character: racial traits cost the higher Tier you've grown into (guide §10)
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+// mutators: apply a buy's effect to a build (immutably)
+
+
+function activeEvents(uptoIdx){ return __PACT.activeEvents(uptoIdx==null?LOG:LOG.slice(0,uptoIdx)); }  // delegates to engine.js
+function foldBuild(uptoIdx){ return __PACT.foldBuild(uptoIdx==null?LOG:LOG.slice(0,uptoIdx)); }  // delegates to engine.js
+function economy(uptoIdx){ return __PACT.economy(uptoIdx==null?LOG:LOG.slice(0,uptoIdx)); }  // delegates to engine.js
+// price a prospective change: frozen delta against the CURRENT committed build
+function priceOf(cat,payload){
+  const cur=foldBuild(null);
+  if(cat==='abil'){var _fr=(cur.stats&&cur.stats[payload.ab])||10;
+    return (DATA.ABIL[Math.min(20,(+payload.to))]||0)-(DATA.ABIL[Math.min(20,_fr)]||0);}   // in-play: price the ability raise off its score
+  const before=compute(cur).total;
+  const cand=clone(cur); (MUT[cat]||(()=>{}))(cand,payload);
+  return compute(cand).total - before;
+}
+function legalCheck(cat,payload){
+  const cur=foldBuild(null); const cand=clone(cur); (MUT[cat]||(()=>{}))(cand,payload);
+  const seen={}; compute(cur).warnings.forEach(w=>{seen[w]=(seen[w]||0)+1;});
+  return compute(cand).warnings.filter(w=>{ if(/OVER BUDGET/.test(w))return false; if(seen[w]>0){seen[w]--;return false;} return true; }); // OVER BUDGET is a soft planning advisory only — the live economy (eco.available, frozen prices) already gates affordability in buy(); never hard-block a purchase you can actually pay for. Otherwise: new warnings introduced — by content, not count (so Vigor 1→2→3 each flag)
+}
+
+function emit(ev){ ev.seq=SEQ++; ev.ts=Date.now(); ev.rules=ev.rules||RULES; LOG.push(ev); REDO=[]; viewAt=null; save(); render(); }
+function award(amount,note,disc){ if(amount===null||amount===undefined||String(amount).trim()==='')return; const a=Math.round(+amount); if(!isFinite(a)||a===0){ if(typeof alert==='function')alert('Enter a whole number of AP to award (e.g. 5 or -3).'); return; } emit({type:'award',amount:a,note:note||'',label:(note&&note.trim())?note.trim():'AP award',disc:!!disc}); }
+// SOFT warnings = the rules permit the action but flag it (intended paid overage / DM-discretion advisories);
+// these stay confirm-through. Everything else a purchase raises is a hard rules violation → blocked with a popup.
+const SOFT_WARN=/surplus charged double|most tables cap at|most DMs cap|priced at character-creation|needs DM approval|to benefit|add no benefit|no Ki-using ability/i;
+// single-instance proficiencies: buying one you already own is never legal (can't stack) → blocked with a popup.
+const DUP_FIELD={save:'saves',skill:'skills',expertise:'expertise',toolexpertise:'toolExpertise',tool:'tools',instrument:'instruments',mastery:'masteries',racial:'racialTraits',racialspell:'racialSpells'};
+function setWornArmour(v){emit({type:'buy',cat:'wornArmour',payload:{v:v},cost:0,label:v?('Worn armour — '+v):'Worn armour — none (unarmoured)',level:foldBuild(null).hd});}
+function buy(cat,payload,label){
+  // (B1) duplicate guard — block re-buying an owned single-instance proficiency
+  if(DUP_FIELD[cat] && payload && payload.v!=null && (foldBuild(null)[DUP_FIELD[cat]]||[]).indexOf(payload.v)>=0){
+    alert('⛔ Already owned — "'+payload.v+'" can only be bought once.'); return; }
+  const cost=priceOf(cat,payload); const eco=economy(null);
+  if(cat!=='drawback' && cost>eco.available){ flash('Not enough AP: needs '+cost+', have '+eco.available); return; }
+  // (B2) split rules warnings: hard violations are blocked with a popup; intended-but-flagged ones stay confirm-through
+  const warns=legalCheck(cat,payload);
+  const hard=warns.filter(function(w){return !SOFT_WARN.test(w);});
+  const soft=warns.filter(function(w){return  SOFT_WARN.test(w);});
+  if(hard.length){ alert('⛔ Purchase blocked — it breaks a rules limit:\n\n• '+hard.join('\n• ')); return; }
+  if(soft.length && !confirm('This purchase raises a rules warning:\n• '+soft.join('\n• ')+'\n\nBuy anyway (it will be flagged for review)?')) return;
+  var _preSwap=(cat==='hd')?_swapAvailFrom((foldBuild(null).hd)||1,LOG):null;
+  emit({type:'buy',cat,payload,cost,label:label||(cat+' '+JSON.stringify(payload)),level:foldBuild(null).hd,warns});
+  if(_preSwap&&_preSwap.avail>0)flash('⚠ You still had '+_preSwap.avail+' free swap'+(_preSwap.avail>1?'s':'')+' at Hit Die '+_preSwap.hd+' — leveling resets them (non-banking). Undo if you meant to swap a spell first.');
+}
+function takeDrawback(v){ const refund=DATA.drawbacks[v]||0; emit({type:'buy',cat:'drawback',payload:{v},cost:-refund,label:'Drawback — '+v,level:foldBuild(null).hd}); }
+function buyoffDrawback(v){ const refund=DATA.drawbacks[v]||0; const cost=refund*3; const eco=economy(null);
+  if(cost>eco.available){flash('Buying off costs '+cost+' AP (3×); you have '+eco.available);return;} emit({type:'buyoff',refVal:v,cost,label:'Bought off — '+v}); }
+function undo(){ if(!LOG.length)return; if(LOG[LOG.length-1].type==='award'&&!LOG[LOG.length-1].disc){flash('AP awards lock your history — buys made before an award can\'t be undone.');return;} REDO.push(LOG.pop()); viewAt=null; save(); render(); }
+function redo(){ if(!REDO.length)return; LOG.push(REDO.pop()); viewAt=null; save(); render(); }
+
+// ---------------- persistence ----------------
+const KEY='pactLiveSheet';
+function save(){ try{localStorage.setItem(KEY,JSON.stringify({LOG,SEQ,rules:RULES,id:currentCharId()}));}catch(e){} }
+function load(){ try{const d=JSON.parse(localStorage.getItem(KEY)); if(d&&d.LOG){LOG=d.LOG;SEQ=d.SEQ||(LOG.length+1);loadedRules=d.rules||null;if(d.id)__charId=d.id;}}catch(e){} }
+function exportJSON(){ const b=foldBuild(null); const blob=new Blob([JSON.stringify({rules:RULES,name:b.name,LOG,SEQ},null,1)],{type:'application/json'});
+  const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;const _efn=(b.name||'pact-live-sheet').replace(/[^a-z0-9]+/gi,'_')+'-'+_dstamp()+'.json';a.download=_efn;a.click();URL.revokeObjectURL(u); if(typeof flash==='function')flash('Character saved to your Downloads as “'+_efn+'”.'); }
+// Loading a saved character preserves its frozen prices. If it was stamped under an OLDER rules version,
+// we keep those prices (grandfathered) and surface the drift; with only the current version live this stays silent.
+function _showVersionBanner(){
+  if(!loadedRules||loadedRules===RULES)return;
+  let vb=$('versionBanner');if(vb)return;  // already shown
+  vb=document.createElement('div');vb.id='versionBanner';
+  vb.style.cssText='position:sticky;top:0;z-index:50;background:#7a4f00;color:#fff;padding:6px 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center';
+  vb.innerHTML='⚠ Loaded <b>'+loadedRules+'</b> character in <b>'+RULES+'</b> rules — past prices frozen; new buys use current rates. <button onclick="this.parentNode.remove()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:16px">✕</button>';
+  document.body.insertBefore(vb,document.body.firstChild);
+}
+function importJSON(file){ const fr=new FileReader(); fr.onload=e=>{try{const d=JSON.parse(e.target.result); if(d.LOG){LOG=d.LOG;SEQ=d.SEQ||(LOG.length+1);loadedRules=d.rules||null;REDO=[];viewAt=null;save();render();
+  if(loadedRules&&loadedRules!==RULES){flash('Loaded a '+loadedRules+' character into '+RULES+' rules — old prices are frozen.');_showVersionBanner();}  else flash('Loaded character.');try{if(!LOG.some(function(e){return e.type==='names';}))openNames();}catch(e){}}}catch(err){alert('Bad file: '+err.message);}}; fr.readAsText(file); }
+function resetAll(){ if(confirm('Wipe this character and its whole history? This starts a clean '+RULES+' character.')){
+  LOG=[];REDO=[];SEQ=1;viewAt=null;loadedRules=null;   // a reset character is born under the current rules
+  const _vb=$('versionBanner');if(_vb)_vb.remove();   // clear any stale version-mismatch banner
+  seedNew();   // re-seed a fresh level-1 character so the budget isn't empty (no false "over budget")
+  save();render();} }
+
+// ---------------- validation tray ----------------
+function validate(){
+  const b=foldBuild(null); const issues=[];
+  if(loadedRules && loadedRules!==RULES) issues.push('Loaded under '+loadedRules+' rules; now running '+RULES+'. Past prices are frozen (kept); new buys use '+RULES+' prices. Any cost change shows as "locked / reprice" drift.');
+  // committed items that no longer exist / are no longer buyable in current rules
+  LOG.filter(e=>e.type==='buy').forEach(e=>{
+    if(e.cat==='feature'&&!DATA.features[e.payload.v]) issues.push('Feature no longer in rules: '+e.payload.v);
+    if(e.cat==='boon'&&!DATA.boons[e.payload.v]) issues.push('Boon no longer in rules: '+e.payload.v);
+    if(e.cat==='drawback'&&!(e.payload.v in DATA.drawbacks)) issues.push('Drawback no longer in rules: '+e.payload.v);
+  });
+  compute(b).warnings.forEach(w=>issues.push('Rule warning: '+w));
+  {var _un=0;for(var i=0;i<(b.dabblerCantrips||0);i++){if(!((b.dabblerCantripNames||[])[i]||'').trim())_un++;}for(var L=1;L<=9;L++){for(var j=0;j<((b.innate||[])[L-1]||0);j++){if(!(((b.innateNames||[])[L-1]||[])[j]||'').trim())_un++;}}(b.traditions||[]).forEach(function(t){(t.disciplines||[]).forEach(function(d){if(!d.name||d.name==='(none)')return;for(var i=0;i<(d.cantrips||0);i++){if(!((d.cantripNames||[])[i]||'').trim())_un++;}for(var L=1;L<=9;L++){for(var j=0;j<((d.known||[])[L-1]||0);j++){if(!(((d.knownNames||[])[L-1]||[])[j]||'').trim())_un++;}}});});if(_un>0)issues.push(_un+' spell name'+(_un>1?'s':'')+' not filled in — tap ✎ Name to record them (purchases are locked; naming is optional)');}
+  return issues;
+}
+
+// ---------------- buy panel builders ----------------
+function opt(v){return '<option value="'+String(v).replace(/"/g,'&quot;')+'">'+v+'</option>';}
+function buyBtn(label,cat,payloadJS){return '<button class="buy" onclick=\''+cat+'BUY\'>'+label+'</button>';}
+
+function nextCostLabel(cat,payload){const c=priceOf(cat,payload);return c+' AP';}
+
+// Centre-panel spellcasting section (spellcasting-redesign): header strip + L1-9 slot grid + per-level lists (3 cols),
+// all driven by the live engine (r.discInfo) + the traditions data; ghost placeholders for unfilled prepared/known.
+function spellPanel(b,r){
+  if(!b||!b.traditions||!b.traditions.length)return '';
+  const ABCOL={STR:'#E03C28',DEX:'#4CAF50',CON:'#E8872B',INT:'#3F6FD8',WIS:'#00ACC1',CHA:'#9C27B0'};
+  const LET='abcdefghijklmnop';
+  let body='';
+  (b.traditions||[]).forEach(function(t,ti){(t.disciplines||[]).forEach(function(d,di){
+    if(!d||!d.name||d.name==='(none)')return;
+    const info=(r.discInfo||[]).find(function(x){return x.tradIndex===ti&&x.name===d.name;})||{};
+    const castAb=info.castAb||'INT', saveDC=(info.saveDC!=null?info.saveDC:'—'), atk=(info.spellAtk!=null?sgn(info.spellAtk):'—'), prepared=!!info.prepared;
+    const castAtLv=(DATA.hdGate&&DATA.hdGate[(t.rank||1)-1])||((t.rank||0)>0?(2*t.rank-1):'—');
+    const strip='<div class="spstrip">'
+      +'<div class="spstat"><small>Ability</small><b style="color:'+(ABCOL[castAb]||'')+'">'+castAb+'</b></div>'
+      +'<div class="spstat"><small>Spell Save DC</small><b>'+saveDC+'</b></div>'
+      +'<div class="spstat"><small>Spell Attack</small><b>'+atk+'</b></div>'
+      +'<div class="spstat"><small>Rank · Cast at</small><b>'+(t.rank||0)+'<span style="font-size:10px;font-weight:600;color:var(--grey)"> · Lv'+castAtLv+'</span></b></div></div>';
+    const slots='<div class="slotgrid">'+(d.slots||[]).map(function(n,i){return '<div class="slotcell'+(n?'':' empty')+'"><div class="lv">L'+(i+1)+'</div><div class="n">'+(n||'—')+'</div></div>';}).join('')+'</div>';
+    const groups=[];
+    const cn=(d.cantripNames||[]).filter(Boolean), ccount=d.cantrips||0;
+    if(ccount||cn.length){let cr=cn.map(function(nm){return '<div class="sprow cant"><span class="bul">◆</span><span>'+esc(nm)+'</span></div>';}).join('');
+      for(let i=cn.length;i<ccount;i++)cr+='<div class="sprow cant ph"><span class="bul">○</span><span>Cantrip '+LET[i]+'</span></div>';
+      groups.push('<div class="splevel"><div class="lh"><span>Cantrips</span><span class="sl">at will</span></div>'+cr+'</div>');}
+    for(let L=1;L<=9;L++){const slot=(d.slots||[])[L-1]||0, named=((d.knownNames||[])[L-1]||[]).filter(Boolean), kcount=(d.known||[])[L-1]||0;
+      if(!slot&&!named.length&&!kcount)continue;
+      let rows=named.map(function(nm){return '<div class="sprow"><span class="bul">●</span><span>'+esc(nm)+'</span></div>';}).join('');
+      const ph=Math.max(0,(prepared?slot:kcount)-named.length);
+      for(let i=0;i<ph;i++)rows+='<div class="sprow ph"><span class="bul">○</span><span>L'+L+' spell '+LET[named.length+i]+'</span></div>';
+      groups.push('<div class="splevel"><div class="lh"><span>Level '+L+'</span><span class="sl">'+slot+' slot'+(slot!==1?'s':'')+' · '+(prepared?'prepared':'known')+'</span></div>'+rows+'</div>');}
+    const cols=[[],[],[]];groups.forEach(function(g,i){cols[i%3].push(g);});
+    const spcols='<div class="spcols">'+cols.map(function(c){return '<div>'+c.join('')+'</div>';}).join('')+'</div>';
+    const allEmpty=prepared && (d.knownNames||[]).every(function(a){return !(a||[]).filter(Boolean).length;});
+    const phnote=allEmpty?'<div class="phnote">Prepared list empty — greyed rows show the slots available to fill. Use ✎ Name to record them.</div>':'';
+    body+='<div class="spdisc"><div class="spname">'+esc(t.name)+' › '+esc(d.name)+(info.isOrigin?' <span class="star" style="color:var(--good)">★</span>':'')+'</div>'+strip+slots+spcols+phnote+'</div>';
+  });});
+  {var _dc=b.dabblerCantrips||0;if(_dc>0){var _otcn=(b.dabblerCantripNames||[]);var _otcr='';for(var _oi=0;_oi<_dc;_oi++){var _onm=String(_otcn[_oi]||'').trim();_otcr+=_onm?('<div class="sprow cant"><span class="bul">◆</span><span>'+esc(_onm)+'</span></div>'):('<div class="sprow cant ph"><span class="bul">○</span><span>Cantrip '+LET[_oi]+'</span></div>');}body+='<div class="spdisc"><div class="spname">Out-of-Tradition cantrips <span style="font-size:10px;font-weight:600;color:var(--grey)">· Wizard list · no scaling</span></div><div class="splevel"><div class="lh"><span>Cantrips</span><span class="sl">at will</span></div>'+_otcr+'</div></div>';}}
+  return body?('<div class="spellsec"><div class="sphd">Spellcasting</div><div class="spbody">'+body+'</div></div>'):'';
+}
+function render(){
+  if(!LOG.length){ /* still render empty */ }
+  {const vl=$('verline');if(vl)vl.textContent='rules '+RULES+(loadedRules&&loadedRules!==RULES?' · loaded from '+loadedRules:'')+' · prices freeze at purchase';}
+  const head = viewAt==null;
+  const idx = viewAt;
+  const b=foldBuild(idx); const r=compute(b); const eco=economy(idx); const m=r.mods;
+  b.budget=eco.earned; // so over-budget warning is meaningful
+  // --- top economy ---
+  const committed = LOG.filter(e=>e.type==='buy'&&e.cat!=='drawback').reduce((s,e)=>s+e.cost,0);
+  // Reprice on the CREATION basis (inPlay:false) so an imported creation character shows no phantom drift.
+  // In-play purchases stay frozen at their higher price, so they correctly read as locked > reprice (a kept premium).
+  const reprice = compute(Object.assign({},b,{inPlay:false})).total;
+  $('eco').innerHTML=(function(){var ap=eco.earned||0,L=0;for(var k=1;k<=20;k++){if((DATA.levelAP[k]||1e9)<=ap)L=k;else break;}var nx=DATA.levelAP[L+1];var cb=b.campaign&&b.campaign.n;var nbar=cb?((b.campaign.boons||[]).length+(b.campaign.draws||[]).length+(b.campaign.arts||[]).length):0;var _sw=_swapAvailFrom(b.hd||1,LOG);return '<div class="ecoline"><b>Lv '+L+'</b> · <b>'+eco.available+'</b> AP left · '+eco.earned+' earned · '+eco.spent+' spent'+(nx?(' · <span class="ed">'+(nx-ap)+' AP to reach equivalent of Lv '+(L+1)+'</span>'):' · <span class="ed">top level</span>')+(committed!==reprice?(' · <span class="drift" title="What you paid (frozen at purchase) vs what the same build would cost at current prices. The difference is grandfathered — never refunded or charged.">paid '+committed+' AP · '+reprice+' at today&rsquo;s prices</span>'):'')+(_sw.avail>0?(' <span class="swapchip" title="Free spell/cantrip/arcanum/style swaps available at Hit Die '+_sw.hd+' — non-banking; use them before you level up (they reset each Hit Die)">🔄 '+_sw.avail+' free swap'+(_sw.avail>1?'s':'')+'</span>'):'')+(cb?(' <span class="campchip" title="Campaign: '+esc(b.campaign.n)+' — '+nbar+' barred; travels with this save"><span class="cc-lbl">Campaign</span> 🛡 <span class="cc-nm">'+esc(b.campaign.n)+'</span></span>'):'')+'</div>';})();
+  {const lm=$('lmobar');if(lm)lm.innerHTML='<b>'+eco.available+' AP</b><span>available · '+eco.spent+' spent / '+eco.earned+' earned</span>';}{var _afn=document.getElementById('apFloatN'),_afb=document.getElementById('apFloat');if(_afn&&_afb){var _now=String(eco.available),_prev=_afb.getAttribute('data-v');_afn.textContent=eco.available;_afb.classList.toggle('neg',eco.available<0);if(_prev!=null&&_prev!==_now){_afb.classList.remove('flash');void _afb.offsetWidth;_afb.classList.add('flash');}_afb.setAttribute('data-v',_now);}}
+  // --- character sheet (derived) ---
+  const ABCOL={STR:'#E03C28',DEX:'#4CAF50',CON:'#E8872B',INT:'#3F6FD8',WIS:'#00ACC1',CHA:'#9C27B0'};
+  let sh='<div class="shname">'+esc(b.name||'Unnamed Hero')+'</div><div class="shsub">'+(b.originClass2&&b.originClass2!=='(none)'?b.originClass+' / '+b.originClass2:b.originClass)+' · '+(b.species2&&b.species2!=='(none)'?'Half-'+b.species+' '+b.species2:b.species)+' · Level '+b.hd+' (T'+r.tier+') · ≈ AP-Level '+apLevel(eco.earned)+' · Prof +'+r.prof+'</div>';
+  const _abGov={STR:'Melee attack & damage · Athletics · carrying & grappling',DEX:'AC (light/medium) · finesse & ranged attacks · Initiative · Acrobatics, Stealth',CON:'Hit Points · concentration · Constitution saves',INT:'Arcana, History, Investigation, Nature, Religion · Wizard-style casting',WIS:'Perception, Insight, Medicine, Survival · Cleric/Druid/Ranger casting',CHA:'Persuasion, Deception, Intimidation, Performance · Bard/Sorcerer/Warlock/Paladin casting'};
+  sh+='<div class="abrow">'+ABILS.map(a=>'<div class="abx itip" title="'+esc(a+' '+((r.effScore&&r.effScore[a])||b.stats[a])+' ('+sgn(m[a])+') — governs '+(_abGov[a]||''))+'"><b style="color:'+ABCOL[a]+'">'+a+'</b><span>'+((r.effScore&&r.effScore[a])||b.stats[a])+'</span><i>'+sgn(m[a])+'</i></div>').join('')+'</div>';
+  const _hpRed=(b.drawbacks||[]).includes('Frail')||(b.drawbacks||[]).includes('Glass Frame');
+  const _kbd={
+    AC:(function(){var sOK=(b.stats.STR||10)>=10,uH=b.armour.heavy&&sOK,uM=b.armour.medium&&sOK,_wa=b.wornArmour&&DATA.armours&&DATA.armours[b.wornArmour],base=_wa?(_wa.base+' '+b.wornArmour):(uH?'18 (heavy armour)':uM?'13 (medium armour)':b.armour.light?'11 (light armour)':'10 (unarmoured)'),dex=_wa?(_wa.cat==='heavy'?0:_wa.cat==='medium'?Math.min(m.DEX,2):m.DEX):(uH?0:uM?Math.min(m.DEX,2):m.DEX);var _aca=[],_acR=/[+]\s*\d+\s*(?:bonus\s+)?(?:to\s+)?(?:your\s+)?AC\b/i,_sc=function(ns,src){(ns||[]).forEach(function(n){var o=src[n];if(o&&o.fx&&_acR.test(o.fx)){var _nm=n.split(': ').pop();if(_aca.indexOf(_nm)<0)_aca.push(_nm);}});};_sc(b.arts,DATA.arts);_sc(b.fightingStyleNames,DATA.arts);_sc(b.boons,DATA.boons);return 'AC '+r.ac+' = '+base+(dex?' + '+dex+' Dex':'')+(b.armour.shield?' + 2 shield':'')+((b.drawbacks||[]).includes('Thin-Skinned')?' − 1 Thin-Skinned':'')+(_aca.length?'  ·  also (apply manually): '+_aca.join(', '):'');})(),
+    HP:'HP '+r.hp+' = '+r.baseHP+' Hit Dice'+(r.conMod?' + '+(b.hd*r.conMod)+' Con':'')+(_hpRed?' − '+b.hd+' '+((b.drawbacks||[]).includes('Frail')?'Frail':'Glass Frame')+' (Vigor/Grit suppressed)':((b.hardy?' + '+(b.hd*b.hardy)+' Vigor':'')+(b.tough?' + '+(b.tough*4)+' Grit':''))),
+    Init:(b.skills||[]).includes('Initiative')?('Init '+sgn(r.init)+' = '+sgn(m.WIS)+' Wis + '+r.prof+' prof'+((b.expertise||[]).includes('Initiative')?' + '+r.prof+' expertise':'')):('Init '+sgn(r.init)+' = '+sgn(m.DEX)+' Dex'),
+    Speed:'Speed '+r.speed+' ft = '+(DATA.speed[b.species]||30)+' '+(b.species||'species')+' base'+(r.speed!==(DATA.speed[b.species]||30)?' (after racial floor, speed arts & drawbacks)':''),
+    DC:r.hasDC?('Spell save DC '+r.saveDC+' = 8 + '+r.prof+' prof + '+sgn(r.castMod)+' '+(r.castAb||'casting')):'No spellcasting',
+    HD:'Hit Dice: '+b.hd+' × d6 (= your level)',
+    Ki:'Ki / Focus pool: '+b.ki+' point'+(b.ki===1?'':'s')+' — spent in play',
+    SP:'Sorcery pool: '+b.sorcery+' point'+(b.sorcery===1?'':'s')+' — fuels metamagic',
+    Vigor:'Vigor rank '+(b.hardy||0)+' — +'+(b.hardy||0)+' HP per Hit Die, capped at your CON modifier ('+sgn(m.CON)+')',
+    Grit:'Grit '+(b.tough||0)+' — +'+((b.tough||0)*4)+' flat HP',
+    Attune:'Attunement slots: '+(b.attune||0)
+  };
+  sh+='<div class="kpis">'+[['AC',r.ac],['HP',r.hp],['Init',sgn(r.init)],['Speed',r.speed+'ft'],['DC',r.hasDC?r.saveDC:'—'],['HD',b.hd+'d6']].concat((b.ki>0)?[['Ki',b.ki]]:[]).concat((b.sorcery>0)?[['SP',b.sorcery]]:[]).concat((b.hardy>0)?[['Vigor',b.hardy]]:[]).concat((b.tough>0)?[['Grit',b.tough]]:[]).concat((b.attune>0)?[['Attune',b.attune]]:[]).map(k=>'<div class="kp" title="'+esc(_kbd[k[0]]||'')+'"><b>'+k[1]+'</b><span>'+k[0]+'</span></div>').join('')+'</div>';
+  const _ftip=function(label,tip){return '<span class="itip"'+(tip?' title="'+esc(tip)+'"':'')+'>'+esc(label)+'</span>';};
+  const feats=[]; b.features.forEach(l=>{var nm=l.split(': ')[1]||l;feats.push(_ftip(nm, nm!==l?l:''));}); b.boons.forEach(x=>feats.push(_ftip('Boon: '+x,(DATA.boons[x]||{}).fx||'')));
+  sh+='<div class="seg"><b>Saves:</b> '+(b.saves.join(', ')||'—')+'</div><div class="seg"><b>Skills:</b> '+(b.skills.join(', ')||'—')+'</div>';
+  if(b.tools.length||b.instruments.length)sh+='<div class="seg"><b>Tools/Instr:</b> '+b.tools.concat(b.instruments).join(', ')+'</div>';
+  if(feats.length)sh+='<div class="seg"><b>Features:</b> '+feats.join(' · ')+'</div>';
+  // V1: Arts & Techniques / Maneuvers / Metamagic — these carry full effect text (DATA.*.fx)
+  const _aTip=(name,src)=>{var o=src[name]||{};return _ftip(name,(o.fx||'')+(o.page?' (PHB p.'+o.page+')':''));};
+  const _arts=(b.arts||[]).concat(b.fightingStyleNames||[]).filter(Boolean);
+  if(_arts.length)sh+='<div class="seg"><b>Arts &amp; Techniques:</b> '+_arts.map(x=>_aTip(x,DATA.arts||{})).join(' · ')+'</div>';
+  const _mvs=(b.maneuverNames||[]).filter(Boolean);
+  if(_mvs.length)sh+='<div class="seg"><b>Maneuvers:</b> '+_mvs.map(x=>_aTip(x,DATA.maneuvers||{})).join(' · ')+'</div>';
+  const _mms=(b.metamagicNames||[]).filter(Boolean);
+  if(_mms.length)sh+='<div class="seg"><b>Metamagic:</b> '+_mms.map(x=>_aTip(x,DATA.metamagicOptions||{})).join(' · ')+'</div>';
+  // V3: weapon masteries — descriptions authored in DATA.masteryFx; PHB page appended when present (John fills page:null)
+  if((b.masteries||[]).length)sh+='<div class="seg"><b>Weapon Masteries:</b> '+b.masteries.map(x=>{var o=(DATA.masteryFx||{})[x]||{};return _ftip(x,(o.fx||'')+(o.page?' (PHB p.'+o.page+')':''));}).join(' · ')+'</div>';
+  if(b.drawbacks.length)sh+='<div class="seg" style="color:var(--bad)"><b>Drawbacks:</b> '+b.drawbacks.map(x=>_ftip(x,(DATA.drawbacks[x]||{}).fx||'')).join(', ')+'</div>';
+  sh+=spellPanel(b,r);
+  $('sheet').innerHTML=sh;
+  // --- ledger / history ---
+  let led='<table class="led"><tr><th>#</th><th>Event</th><th>AP</th><th></th></tr>';
+  const boff=activeEvents(idx).boughtOff;
+  (idx==null?LOG:LOG.slice(0,idx)).forEach(e=>{
+    let ap='', cls='', act='';
+    if(e.type==='award'){ap='+'+e.amount;cls='aw';}
+    else if(e.type==='buy'){ const dead=(e.cat==='drawback'&&boff[e.payload&&e.payload.v]);
+      ap=(e.cost<0?'+'+(-e.cost):'−'+e.cost); cls=dead?'dead':'';
+      if(!dead && e.cat==='drawback') act='<button class="x" onclick="buyoffDrawback(\''+(e.payload.v||'').replace(/'/g,"\\'")+'\')">buy off 3×</button>';
+      if((e.warns||[]).length) cls+=' warnrow'; }
+    else if(e.type==='buyoff'){ap='−'+e.cost;cls='rfnd';}
+    else if(e.type==='name'){ap='';}
+    led+='<tr class="'+cls+'"><td>'+e.seq+'</td><td>'+esc(e.label||e.type)+(e.rules?' <span class="vtag">'+e.rules+'</span>':'')+((e.type==='award'&&e.ts)?' <small style="color:var(--grey);font-weight:400">'+new Date(e.ts).toLocaleDateString()+'</small>':'')+'</td><td>'+ap+'</td><td>'+act+'</td></tr>';
+  });
+  led+='</table>'; $('ledger').innerHTML=led;
+  // --- validation tray ---
+  const iss=validate(); $('tray').innerHTML=iss.length?('<b>⚠ Needs review ('+iss.length+')</b><ul>'+iss.map(i=>'<li>'+i+'</li>').join('')+'</ul>'):'<span class="ok">✓ No issues — everything legal & grandfathered.</span>';
+  // --- time-travel slider ---
+  $('tt').max=LOG.length; $('tt').value=(viewAt==null?LOG.length:viewAt);
+  $('ttlabel').textContent=(viewAt==null?'live (head)':'viewing after event '+viewAt+' of '+LOG.length);
+  $('histwrap').style.opacity=head?'1':'.6';
+  // --- buy panel (only at head) ---
+  buildBuyPanel(b,r,eco,head);
+}
+
+function flash(msg){let f=$('flash');f.textContent=msg;f.style.display='block';clearTimeout(flash._t);flash._t=setTimeout(()=>f.style.display='none',2600);}
+
+let buyQuery=''; const grpOpen={Progress:1,Abilities:1,'Ki, Sorcery & Attunement points':1}; let affordOnly=false; let hideUnavail=false; let buyCls='';
+function setBuyCls(c){buyCls=c||'';refreshBuy();}
+function setBuyQuery(v){buyQuery=(v||'').toLowerCase().trim();refreshBuy();}
+function setAffordOnly(v){affordOnly=!!v;refreshBuy();}
+function setHideUnavail(v){hideUnavail=!!v;refreshBuy();}
+function toggleGrp(t){grpOpen[t]=!grpOpen[t];refreshBuy();}
+/* Two-level buy panel: each GROUPS section rolls up into one of these 6 collapsible
+ * super-categories (restored from v0.097). _catOf maps a section label → its super-category. */
+const catOpen={'Core':1,'Proficiencies':1,'Class & subclass':1,'Magic':1,'Heritage & extras':1,'DM / Advanced':0};
+function toggleCat(c){catOpen[c]=catOpen[c]?0:1;refreshBuy();}
+function _catOf(lab){
+  if(['Progress','Abilities','Survivability','Saving throws'].indexOf(lab)>=0)return 'Core';
+  if(['Skills','Expertise','Languages & masteries','Tools & instruments','Tool expertise','Weapons & armour'].indexOf(lab)>=0)return 'Proficiencies';
+  if(/ features$/.test(lab)||['Cross-class features','Unlock classes','Unlocked-class features','Subclasses & abilities','Subclass spell lists','Eldritch Invocations','Ki, Sorcery & Attunement points'].indexOf(lab)>=0)return 'Class & subclass';
+  if(lab==='Spellcasting'||/^Lineage spell/.test(lab))return 'Magic';
+  if(lab==='DM house rules')return 'DM / Advanced';
+  return 'Heritage & extras';
+}
+function refreshBuy(){const b=foldBuild(null),r=compute(b),eco=economy(null);buildBuyPanel(b,r,eco,viewAt==null);}
+// AP a character gains advancing one level (benchmark anchors, interpolated)
+function levelDelta(hd){return (DATA.levelAP[hd+1]||DATA.levelAP[hd]||0)-(DATA.levelAP[hd]||0);}
+function toggleTasha(){var b=foldBuild(null);var on=!((b.houseRules&&b.houseRules.dmAllows&&b.houseRules.dmAllows.tasha)===false);emit({type:"buy",cat:"tasharule",payload:{v:!on},cost:0,label:"DM house rule — Tasha abilities "+(!on?"allowed":"barred"),level:b.hd});}
+function awardToNext(){const b=foldBuild(null);const d=levelDelta(b.hd);if(d>0)award(d,'Level '+(b.hd+1)+' budget');else flash('Already at the top of the benchmark table.');}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+function buildBuyPanel(b,r,eco,head){
+  const buyEl=$('buy'); if(!head){buyEl.innerHTML='<p class="hint">Viewing history — return to <b>live</b> to make purchases.</p>';return;}
+  // a buyable button: greys out (with the reason) when not allowed; tap a greyed one to hear why
+  function racialWhy(r){if(!r)return '';if(r.minHD&&b.hd<r.minHD)return 'needs '+r.minHD+' Hit Dice (level '+r.minHD+')';if(r.reqRace){var _o=DATA.racial[r.reqRace];var owns=b.racialTraits.indexOf(r.reqRace)>=0||!!(_o&&_o.pack&&(_o.race===b.species||_o.race===b.species2));if(!owns)return 'requires '+((r.reqRace.split(': ')[1])||r.reqRace);}return '';}function ib(label,cat,payload,reasonExtra){
+    if(buyQuery && label.toLowerCase().indexOf(buyQuery)<0) return '';
+    const cost=priceOf(cat,payload); const warns=legalCheck(cat,payload);
+    const unaff = cat!=='drawback' && cost>eco.available;
+    if(affordOnly && unaff) return '';   // "Affordable only": hide every buy you can't afford (warned or not)
+    // HARD block (flash only): unmet prerequisite (reasonExtra) or not enough AP.
+    // SOFT warning: the purchase is allowed — buy() asks to confirm and flags it for review. Don't dead-end it.
+    const hardReason = reasonExtra || (unaff?('needs '+cost+' AP — you have '+eco.available):'');
+    const soft = (!hardReason && warns.length)?warns[0]:'';
+    const blocked=!!hardReason;
+    if(hideUnavail && blocked) return '';   // "Hide unavailable": drop the greyed can't-buy tiles (default off → shown greyed+clickable with the reason)
+    const costlbl = cat==='drawback'?('+'+(-cost)):(''+cost);
+    const pay='buy(&quot;'+cat+'&quot;,'+esc(JSON.stringify(payload))+',&quot;'+esc(label)+'&quot;)';
+    const click = blocked ? ('flash(&quot;'+esc(hardReason)+'&quot;)') : pay;
+    const note = hardReason || soft;
+    const _pg=(['feature','subabil','racial'].indexOf(cat)>=0&&typeof FEAT_PG!=='undefined'&&payload&&FEAT_PG[payload.v])?('PHB p.'+FEAT_PG[payload.v]):'';
+    const _ttl=[note,_pg].filter(Boolean).join(' · ');
+    return '<button class="ib'+(blocked?' dis':(soft?' warn':''))+(cat==='drawback'?' draw':'')+'" title="'+esc(_ttl)+'" onclick="'+click+'">'+label+' <em>'+costlbl+'</em>'+(note?'<small class="why">'+esc(note)+'</small>':'')+'</button>';
+  }
+  function db(name){ if(buyQuery && name.toLowerCase().indexOf(buyQuery)<0) return '';
+    return '<button class="ib draw" onclick="takeDrawback(&quot;'+esc(name)+'&quot;)">'+name+' <em>+'+DATA.drawbacks[name]+'</em><small class="why" style="color:var(--bad)">'+esc((DATA.drawbackFx&&DATA.drawbackFx[name])||'')+'</small></button>';}
+  // Greyed-out "already purchased" tile — shows up in buy panel for items already owned
+  function ibOwned(label,note){
+    if(buyQuery && label.toLowerCase().indexOf(buyQuery)<0) return '';
+    const tt=note||'Already purchased';
+    return '<button class="ib dis" title="'+esc(tt)+'" onclick="flash(&quot;'+esc(tt)+'&quot;)" style="opacity:0.45;cursor:default">'+label+' <em>✓</em><small class="why">'+esc(note||'owned')+'</small></button>';}
+  const wp=b.weaponProf||{};
+  const _tashaOK=!((b.houseRules&&b.houseRules.dmAllows&&b.houseRules.dmAllows.tasha)===false);
+  const _hasDisc=(n)=>(b.traditions||[]).some(t=>(t.disciplines||[]).some(d=>d&&d.name===n));
+  const GROUPS=[
+   ['Progress',()=>{const nd=levelDelta(b.hd);return ib('Level up → Hit Die '+(b.hd+1),'hd',{to:b.hd+1})+(b.profBonus<6?ib('Proficiency +'+(b.profBonus+1),'prof',{to:b.profBonus+1},(b.hd<(DATA.profGate[b.profBonus+1]||99))?('needs '+DATA.profGate[b.profBonus+1]+' HD'):''):'');}],
+   ['Abilities',()=>ABILS.map(a=>{const s=b.stats[a];const es=(r.effScore&&r.effScore[a])||s;return es<20?ib(a+' '+s+'→'+Math.min(20,s+2),'abil',{ab:a,to:Math.min(20,s+2)}):ibOwned(a+' '+es,'effective 20 — maxed');}).join('')],
+   ['Species traits ('+([b.species,b.species2].filter(s=>s&&s!=='(none)').join(' / '))+')',()=>{const _races=[b.species,b.species2].filter(s=>s&&s!=='(none)');const _hr=DATA.racialList.filter(l=>_races.indexOf(DATA.racial[l].race)>=0&&!DATA.racial[l].pack);if(!_hr.length)return '<span class="hint">Pack traits are included; other species are creation-only.</span>';return _hr.map(l=>b.racialTraits.includes(l)?ibOwned('Trait: '+(l.split(': ')[1]||l)):ib('Trait: '+(l.split(': ')[1]||l),'racial',{v:l},racialWhy(DATA.racial[l]))).join('');}],
+   ['Survivability',()=>ib('Vigor rank '+(b.hardy+1),'vigor',{to:b.hardy+1})+ib('Grit +4 HP ('+(b.tough+1)+')','grit',{to:b.tough+1})],
+   ['Saving throws',()=>ABILS.map(a=>b.saves.includes(a)?ibOwned(a):ib(a,'save',{v:a})).join('')],
+   ['Skills',()=>DATA.skillList.map(s=>b.skills.includes(s[0])?ibOwned(s[0]):ib(s[0],'skill',{v:s[0]})).join('')],
+   ['Expertise',()=>{if(!b.skills.length)return '<span class="hint">Buy a skill first, then you can double down with Expertise.</span>';return b.skills.map(s=>b.expertise.includes(s)?ibOwned('Expertise: '+s):ib('Expertise: '+s,'expertise',{v:s})).join('');}],
+   ['Languages & masteries',()=>ib('+1 Language ('+(b.languages+1)+')','language',{to:b.languages+1})+DATA.masteries.map(x=>b.masteries.includes(x)?ibOwned('Mastery: '+x):ib('Mastery: '+x,'mastery',{v:x})).join('')],
+   ['Tools & instruments',()=>DATA.toolList.map(x=>b.tools.includes(x)?ibOwned(x):ib(x,'tool',{v:x})).join('')+DATA.instrumentList.map(x=>b.instruments.includes(x)?ibOwned(x):ib(x,'instrument',{v:x})).join('')],
+   ['Tool expertise',()=>{const _own=[].concat(b.tools||[],b.instruments||[],b.customProfs||[]);if(!_own.length)return '<span class="hint">Buy a tool or instrument first, then double down with Expertise.</span>';return _own.map(x=>(b.toolExpertise||[]).includes(x)?ibOwned('Expertise: '+x):ib('Expertise: '+x,'toolexpertise',{v:x})).join('');}],
+   
+   ['Lineage spell-likes'+(b.lineage?' ('+b.lineage+')':''),()=>{const _lo=(DATA.lineageOf&&(DATA.lineageOf[b.species]||DATA.lineageOf[b.species2]));if(!_lo)return '<span class="hint">Your species has no lineage spell-likes.</span>';if(!b.lineage)return '<span class="hint">Choose your lineage in the Species section first.</span>';const _spells=(DATA.lineageSpells&&DATA.lineageSpells[b.lineage])||[];if(!_spells.length)return '<span class="hint">Dragonborn ancestry sets your damage type — no spell-likes to buy.</span>';return _spells.map(function(sp){const _done=(b.racialSpells||[]).includes(sp[0]);const _L=sp[2];const _need=_L>0?(DATA.hdGate[_L-1]||1):1;const _warn=b.hd<_need?'needs '+_need+' HD':'';return _done?ibOwned(sp[0]+' ('+sp[1]+' AP)'):ib(sp[0]+' ('+sp[1]+' AP)','racialspell',{v:sp[0]},_warn);}).join('');}],
+   ['Weapons & armour',()=>(wp.simple?ibOwned('Simple weapons'):ib('Simple weapons','wprof',{wp:{...wp,simple:true}}))+(wp.allMartial?ibOwned('All martial'):ib('All martial','wprof',{wp:{...wp,simple:true,allMartial:true}}))+(wp.improvised?ibOwned('Improvised weapons'):ib('Improvised weapons','wprof',{wp:{...wp,improvised:true}}))+(b.armour.light?ibOwned('Light armour'):ib('Light armour','armour',{v:'light'}))+(b.armour.medium?ibOwned('Medium armour'):ib('Medium armour','armour',{v:'medium'},!b.armour.light?'needs Light first':((b.stats.STR||10)<10?'needs STR 10':'')))+(b.armour.heavy?ibOwned('Heavy armour'):ib('Heavy armour','armour',{v:'heavy'},!b.armour.medium?'needs Medium first':''))+(b.armour.shield?ibOwned('Shield'):ib('Shield','armour',{v:'shield'}))+'<div class="row" style="margin-top:6px;align-items:center"><label class="l" style="font-size:11px">Worn armour</label><select onchange="setWornArmour(this.value)" style="flex:1;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink);font:inherit"><option value="">— none / unarmoured (10 + Dex) —</option>'+Object.keys(DATA.armours).map(function(an){var aa=DATA.armours[an];return '<option value="'+an+'"'+(b.wornArmour===an?' selected':'')+'>'+an+' — AC '+aa.base+' ('+aa.cat+')'+(b.armour[aa.cat]?'':' ⚠ no prof')+'</option>';}).join('')+'</select></div>'],
+   [b.originClass+' features',()=>Object.keys(DATA.features).filter(l=>DATA.features[l].cls===b.originClass&&!DATA.features[l].inv&&!DATA.features[l].hidden&&(_tashaOK||!DATA.features[l].noncore)).sort((a,c)=>DATA.features[a].tier-DATA.features[c].tier).map(l=>{if(b.features.includes(l))return ibOwned((l.split(': ')[1]||l)+' · T'+DATA.features[l].tier);const f=DATA.features[l];const need=DATA.tierHD[f.tier]||1;var why=b.hd<need?('needs '+need+' HD (T'+f.tier+')'):(f.needsKi&&!((DATA.kiCum&&DATA.kiCum[b.ki||0])>=1))?'needs ≥1 Ki / Focus point':(f.needsSorc&&(b.sorcery||0)<1)?'needs ≥1 sorcery point (buy sorcery points)':((f.needsDisc&&!_hasDisc(f.needsDisc))?('needs '+f.needsDisc+' Discipline'):'');return ib((l.split(': ')[1]||l)+' · T'+f.tier,'feature',{v:l},why);}).join('')],
+   ['Eldritch Invocations',()=>{var hasWL=(b.traditions||[]).some(function(t){return (t.disciplines||[]).some(function(d){return d&&d.name==="Warlock";});});if(!hasWL)return '<span class="hint">🔒 Eldritch Invocations require the <b>Warlock discipline</b> — open Arcane › Warlock in Spellcasting first.</span>';return Object.keys(DATA.features).filter(function(l){return DATA.features[l].inv;}).sort(function(a,c){return DATA.features[a].tier-DATA.features[c].tier;}).map(function(l){var f=DATA.features[l];var nm=(l.split(': ')[1]||l);if(b.features.includes(l))return ibOwned(nm+' · T'+f.tier);var need=Math.max(DATA.tierHD[f.tier]||1,f.lvl||0);var miss=(f.prereq||[]).filter(function(r){return !b.features.includes(r);}).map(function(r){return r.split(': ')[1]||r;});var why=b.hd<need?('needs Lv '+need):(miss.length?('needs '+miss.join(' + ')):'');return ib(nm+' · T'+f.tier,'feature',{v:l},why);}).join('');}],
+   ['DM house rules',()=>'<button class="ib" onclick="toggleTasha()" title="Allow or bar non-core (DM-gated) content — XGtE / TCoE items">🜂 Non-core content: <b>'+(_tashaOK?'Allowed':'Barred')+'</b> — click to '+(_tashaOK?'bar':'allow')+'</button>'],
+   ['Arts \u0026 Techniques',()=>{
+    const BAND_S={0:'Sit',1:'Per-Rest',2:'At-Will',3:'Passive',4:'Premium'};
+    const CATORD=['Combat','Fighting Style','Magic','Utility','Social','Origin'];
+    const renderArt=x=>{const ar=DATA.arts[x];if(!ar)return '';
+      const hdOk=b.hd>=(+ar.hd||1);let statOk=true,statNote='';
+      const msa=ar.minStatsAny;if(msa&&msa.stats){const met=msa.stats.some(a=>(b.stats&&b.stats[a]||10)>=msa.val);if(!met){statOk=false;statNote=msa.stats.join('/')+' '+msa.val+'+';}}
+      const blocked=!hdOk||!statOk;
+      const gate=blocked?(hdOk?('needs '+statNote):('needs '+(+ar.hd||1)+' HD'+(statNote?' \u0026 '+statNote:''))):(ar.prereqNote?('Prereq: '+ar.prereqNote+' \u2713'):'');
+      const label=x+' \u2014 '+ar.ap+' AP ('+BAND_S[ar.band||0]+')';
+      if(b.arts.includes(x))return ibOwned(label);return ib(label,'art',{v:x},gate);};
+    const avail=(DATA.artList||[]).filter(x=>{const a=DATA.arts[x]||{};if(!(_tashaOK||!a.noncore))return false;if(campBarred('arts',x))return false;if(a.cat==='Fighting Style'&&a.reqFeat)return false;return true;});
+    const byCat={};avail.forEach(x=>{const c=(DATA.arts[x]||{}).cat||'Other';(byCat[c]=byCat[c]||[]).push(x);});
+    const cats=CATORD.filter(c=>byCat[c]).concat(Object.keys(byCat).filter(c=>CATORD.indexOf(c)<0).sort());
+    return cats.map(c=>{const items=byCat[c].slice().sort();return '<div class="atcat" style="width:100%;font-size:10px;color:var(--grey);margin:6px 0 1px;text-transform:uppercase;letter-spacing:.4px;font-weight:700">'+c+(c==='Fighting Style'?' \u2014 11 AP each (feature-granted ones are named free in the \u270E picker)':'')+'</div>'+items.map(renderArt).join('');}).join('') || '<span class="hint">No arts available.</span>';}],
+   ['Boons',()=>DATA.boonList.slice().filter(x=>(_tashaOK||!(DATA.boons[x]||{}).noncore)&&!campBarred('boons',x)).sort((a,c)=>((DATA.boons[a].hd||1)-(DATA.boons[c].hd||1))||a.localeCompare(c)).map(x=>b.boons.includes(x)?ibOwned(x+' (HD '+DATA.boons[x].hd+'+)'):ib(x+' (HD '+DATA.boons[x].hd+'+)','boon',{v:x},b.hd<DATA.boons[x].hd?('needs '+DATA.boons[x].hd+' HD'):'')).join('')],
+   ['Drawbacks (gain AP)',()=>{const {boughtOff:_bo}=activeEvents(null);return DATA.drawbackList.slice().filter(x=>!campBarred('draws',x)).sort((a,c)=>a.localeCompare(c)).map(x=>{if(_bo[x])return ibOwned(x,'Bought off (3× cost paid)');if(b.drawbacks.includes(x))return ibOwned(x,'Active drawback');return db(x);}).join('');}],
+   ['Ki, Sorcery & Attunement points',()=>ib('Attunement slot '+(b.attune+1),'attune',{to:b.attune+1})
+     +ib('Ki / Focus point '+(b.ki+1),'ki',{to:b.ki+1})
+     +ib('Sorcery point '+(b.sorcery+1),'sorcery',{to:b.sorcery+1},(!_hasDisc('Sorcerer')?'needs the Sorcerer discipline':((b.hd||1)<2?'needs 2 Hit Dice (T2)':'')))
+     +((b.martiallyBound==='(none)')?ib('Martially Bound: '+b.originClass+' (+2 AP)','mbound',{v:b.originClass}):'')],
+   ['Cross-class features',()=>{var others=DATA.classes.filter(function(c){return c!==b.originClass&&c!==b.originClass2;});if(!others.length)return '<span class="hint">No other classes available.</span>';var sel=(buyCls&&others.indexOf(buyCls)>=0)?buyCls:'';var opts='<option value="">— pick a class to buy its features cross-class —</option>'+others.map(function(c){var u=(b.unlockedClasses||[]).indexOf(c)>=0;return '<option value="'+c+'"'+(c===sel?' selected':'')+'>'+c+(u?' (unlocked — discounted)':'')+'</option>';}).join('');var pick='<select onchange="setBuyCls(this.value)" style="width:100%;box-sizing:border-box;padding:5px 8px;margin-bottom:6px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--inp);color:var(--ink)">'+opts+'</select>';if(!sel)return pick+'<span class="hint">Any class’s features can be bought here at the cross-class price (†). Unlock the class (below) to drop them to the discounted rate.</span>';return pick+Object.keys(DATA.features).filter(function(l){return DATA.features[l].cls===sel&&!DATA.features[l].inv&&!DATA.features[l].hidden&&(_tashaOK||!DATA.features[l].noncore);}).sort(function(a,c){return DATA.features[a].tier-DATA.features[c].tier;}).map(function(l){if(b.features.includes(l))return ibOwned((l.split(': ')[1]||l)+' · T'+DATA.features[l].tier);var f=DATA.features[l];var need=DATA.tierHD[f.tier]||1;var why=b.hd<need?('needs '+need+' HD (T'+f.tier+')'):(f.needsKi&&!((DATA.kiCum&&DATA.kiCum[b.ki||0])>=1))?'needs ≥1 Ki / Focus point':(f.needsSorc&&(b.sorcery||0)<1)?'needs ≥1 sorcery point (buy sorcery points)':((f.needsDisc&&!_hasDisc(f.needsDisc))?('needs '+f.needsDisc+' Discipline'):'');return ib((l.split(': ')[1]||l)+' · T'+f.tier,'feature',{v:l},why);}).join('');}],
+   ['Unlock classes',()=>{return DATA.classes.filter(function(c){return c!==b.originClass;}).map(function(c){
+       if((b.unlockedClasses||[]).indexOf(c)>=0)return ibOwned('✓ '+c+' unlocked','Its features now price at the origin (discounted) rate');
+       return ib('Unlock '+c,'unlockclass',{v:c});}).join('');}],
+   ['Unlocked-class features',()=>{var cls=(b.unlockedClasses||[]);if(!cls.length)return '<span class="hint">Unlock a class above, then its features become buyable here at the discounted rate.</span>';
+     return cls.map(function(c){return '<div style="font-weight:700;color:var(--navytx);margin:5px 0 1px">'+c+'</div>'+Object.keys(DATA.features).filter(function(l){return DATA.features[l].cls===c&&!DATA.features[l].inv&&!DATA.features[l].hidden&&(_tashaOK||!DATA.features[l].noncore);}).sort(function(a,d){return DATA.features[a].tier-DATA.features[d].tier;}).map(function(l){if(b.features.includes(l))return ibOwned((l.split(': ')[1]||l)+' · T'+DATA.features[l].tier);var f=DATA.features[l];var need=DATA.tierHD[f.tier]||1;var why=b.hd<need?('needs '+need+' HD (T'+f.tier+')'):'';return ib((l.split(': ')[1]||l)+' · T'+f.tier,'feature',{v:l},why);}).join('');}).join('');}],
+   ['Subclasses & abilities',()=>{var access=[b.originClass].concat(b.unlockedClasses||[]).filter(function(c){return DATA.subList&&DATA.subList[c];});
+     if(!access.length)return '<span class="hint">None of your classes have subclasses.</span>';
+     var s='';access.forEach(function(c){var subs=DATA.subList[c];var fsub=(b.freeSub||{})[c];
+       s+='<div style="font-weight:700;color:var(--navytx);margin:6px 0 1px">'+c+(fsub?(' — free subclass: '+fsub):' — pick a free subclass:')+'</div>';
+       if(!fsub)s+=subs.map(function(sub){return ib('Free subclass → '+sub,'freesub',{cls:c,sub:sub});}).join('');
+       subs.forEach(function(sub){((DATA.subclasses[c][sub]||{}).abilities||[]).forEach(function(a){var key=c+'|'+sub+'|'+a.name;
+         if((b.subAbilities||[]).indexOf(key)>=0){s+=ibOwned(sub+': '+a.name+' · '+a.tb);return;}
+         var need=(DATA.tierHD&&DATA.tierHD[a.tier])||1;var why=b.hd<need?('needs '+need+' HD (T'+a.tier+')'):'';
+         s+=ib(sub+': '+a.name+' · '+a.tb,'subabil',{v:key},why);});});});
+     return s;}],
+   ['Subclass spell lists',()=>{var pairs=[],seen={},s='';
+     Object.keys(b.freeSub||{}).forEach(function(c){if(b.freeSub[c])pairs.push([c,b.freeSub[c]]);});
+     (b.subAbilities||[]).forEach(function(k){var a=DATA.subAbilMap[k];if(a)pairs.push([a.cls,a.sub]);});
+     (b.subSpellBundles||[]).forEach(function(k){var p=String(k).split('|');if(p[0]&&p[1])pairs.push([p[0],p[1]]);});
+     pairs.forEach(function(pr){var c=pr[0],sub=pr[1],id=c+'|'+sub;if(seen[id])return;seen[id]=1;
+       var bun=((DATA.subclasses[c]||{})[sub]||{}).spellBundle;if(!bun)return;
+       var cn=bun.cantrips?(' (+'+bun.cantrips+' cantrip'+(bun.cantrips>1?'s':'')+')'):'';
+       if(sub==='Circle of the Land'){['Arid','Polar','Temperate','Tropical'].forEach(function(tr){var tid=c+'|'+sub+'|'+tr,tl='Spell list: Circle of the Land — '+tr+cn;if((b.subSpellBundles||[]).indexOf(tid)>=0)s+=ibOwned(tl,'Always-prepared bundle bought');else s+=ib(tl,'subbundle',{v:tid});});return;}
+       var lbl='Spell list: '+sub+cn;
+       if((b.subSpellBundles||[]).indexOf(id)>=0)s+=ibOwned(lbl,'Always-prepared bundle bought');else s+=ib(lbl,'subbundle',{v:id});});
+     return s||'<span class="hint">No subclass with an expanded spell list is open yet — pick one in CharGen and import.</span>';}],
+   ['Spellcasting',()=>{ if(!b.traditions[0]){let s='';for(const t of ["Arcane","Divine","Primal"])for(const d of (DATA.disc[t]||[]))s+=ib('Open '+t+' / '+d,'found',{trad:t,disc:d});return s;}
+     const t=b.traditions[0],d=t.disciplines[0];let s=(t.rank<9?ib('Rank '+(t.rank+1),'rank',{to:t.rank+1}):'')+((DATA.noCantrip||[]).indexOf(d.name)<0?ib('Cantrip ('+(d.cantrips+1)+')','cantrip',{to:d.cantrips+1}):'');
+     for(let L=1;L<=9;L++){const need=DATA.hdGate[L-1];const gate=(t.rank<L||b.hd<need)?('needs Rank '+L+' & '+need+' HD'):'';s+=ib('L'+L+' slot ('+((d.slots[L-1]||0)+1)+')','slot',{L,to:(d.slots[L-1]||0)+1},gate)+(!(DATA.prepared||[]).includes(d.name)?ib('L'+L+' known ('+((d.known[L-1]||0)+1)+')','known',{L,to:(d.known[L-1]||0)+1},gate):'');} return s;}],
+  ];
+  let html='';
+  const _CATS=['Core','Proficiencies','Class & subclass','Magic','Heritage & extras','DM / Advanced'];
+  for(const cat of _CATS){
+    let catInner='';
+    for(const g of GROUPS){if(_catOf(g[0])!==cat)continue;const open=grpOpen[g[0]]||!!buyQuery; let inner=open?g[1]():'';
+      if(buyQuery && open && !inner.replace(/\s/g,'')) continue;
+      catInner+='<div class="bg'+(open?'':' clp')+'"><h4 onclick="toggleGrp(&quot;'+esc(g[0])+'&quot;)">'+g[0]+'</h4>'+(open?'<div class="bgbody">'+(inner||'<span class="hint">none available</span>')+'</div>':'')+'</div>';}
+    if(!catInner.replace(/\s/g,'')) continue;
+    const copen=catOpen[cat]||!!buyQuery;
+    html+='<div class="bgcat'+(copen?'':' clp')+'"><h3 class="cath" onclick="toggleCat(&quot;'+esc(cat)+'&quot;)">'+cat+'</h3>'+(copen?'<div class="catbody">'+catInner+'</div>':'')+'</div>';
+  }
+  buyEl.innerHTML=html;
+}
+
+// ---------------- full character sheet overlay (shared renderer; see sheet_assets.py) ----------------
+function renderSheet(){const b=foldBuild(null),r=compute(b),eco=economy(null);
+  return renderCharSheet(b,r,{apText:eco.spent+' AP spent / '+eco.available+' available  ·  ≈ AP-Level '+apLevel(eco.earned),noSpell:LS_noSpell});}
+function toggleSheet(){const ov=$('sheetview');if(!ov)return;if(ov.style.display==='block'){ov.style.display='none';}else{$('sheetbody').innerHTML=renderSheet();hydrateSheet(currentCharId());ov.style.display='block';}}
+// B1 (v0.100): LS-only "no-Spellcasting" sheet view — full sheet vs hide the computed Spellcasting section + manual slot box. CharGen never sets ctx.noSpell, so its sheet is unchanged (parity holds).
+var LS_noSpell=(function(){try{return localStorage.getItem('pactLSnoSpell')==='1';}catch(e){return false;}})();
+function _lsSpellTogLabel(){var b=document.getElementById('miSpellTog');if(b)b.textContent=(LS_noSpell?'✦ Show spellcasting on sheet':'🚫 Hide spellcasting on sheet');}
+function toggleSheetSpell(){LS_noSpell=!LS_noSpell;try{localStorage.setItem('pactLSnoSpell',LS_noSpell?'1':'0');}catch(e){}_lsSpellTogLabel();var ov=$('sheetview');if(ov&&ov.style.display==='block'){$('sheetbody').innerHTML=renderSheet();hydrateSheet(currentCharId());}}
+const BONDS={magical:[
+{n:'The Kindled Dawn',t:'mag',align:'Lawful Good',binds:'clerics and paladins, Divine.',cls:["Cleric", "Paladin"],trad:'Divine',ranks:[{r:'Initiate',lo:1,hi:4,d:'Keep the dawn prayer; observe the holy days; carry the faith\'s light openly; speak a rite over the dead you make.'},{r:'Sworn',lo:5,hi:9,d:'Tithe a tenth; destroy undeath where you find it; never abandon an innocent to the dark; minister where the church sends you.'},{r:'Anointed',lo:10,hi:14,d:'Lead a congregation or chapter; the tithe rises to a quarter, or you fund and staff a chapel; a bishop assigns you a named darkness to break; the church\'s call comes before your own plans.'},{r:'Exalted',lo:15,hi:null,d:'Raised to high office — made a prelate of a see, handed a cathedral and a diocese to govern. You ordain priests, sit the synods, settle points of doctrine, and steward the church\'s lands and coffers. The church recalls you from the field to take your seat. Long stretches now go to administering the faithful, and the open road becomes something you snatch between duties.'}]},
+{n:'The Maw',t:'mag',align:'Neutral Evil',binds:'warlocks, Arcane.',cls:["Warlock"],trad:'Arcane',ranks:[{r:'Initiate',lo:1,hi:4,d:'Never speak its name; answer when the mark burns; offer a small morsel when it stirs — a coin of memory, a night\'s sleep.'},{r:'Sworn',lo:5,hi:9,d:'Each new moon, offer a true morsel — a memory, a name, a year of someone\'s luck; carry its mark hidden.'},{r:'Anointed',lo:10,hi:14,d:'Morsels grow to significant lives, or to pieces of you — a year off your span, the colour of your eyes, a feeling lost forever; open a new cell or corrupt someone who trusts you.'},{r:'Exalted',lo:15,hi:null,d:'Named its high steward — keeper of its sealed prison and master of its cells. You conduct the great rites, oversee and discipline lesser cultists, and manage the spread of its mark. You may not stray far or long from its place of power. The hunger no longer merely feeds on you; it puts you to work running its church of appetite, and that work fills your days.'}]},
+{n:'The Argent Conclave',t:'mag',align:'Lawful Neutral',binds:'wizards, Arcane.',cls:["Wizard"],trad:'Arcane',ranks:[{r:'Initiate',lo:1,hi:4,d:'Copy every spell you scribe into the vault; keep the Conclave\'s secrets; pay your dues.'},{r:'Sworn',lo:5,hi:9,d:'Never teach outsiders or rivals; accept assignments — recover a lost tome, investigate rogue magic; attend the conclaves.'},{r:'Anointed',lo:10,hi:14,d:'Take a committee chair, run a chapter-house, answer for apprentices; surrender your signature discoveries to the vault under the Conclave\'s name; take a side in its feuds.'},{r:'Exalted',lo:15,hi:null,d:'Elevated to the ruling council as an Archmagus. You keep residence at the citadel for long terms, chair its committees, manage its budgets, feuds, and apprentices, and oversee the vault. The seat is decades of duty that bind you to the silver towers. Adventuring becomes a rare leave of absence, not a life.'}]},
+{n:'The Mothwood Circle',t:'mag',align:'True Neutral',binds:'druids, Primal.',cls:["Druid"],trad:'Primal',ranks:[{r:'Initiate',lo:1,hi:4,d:'Return to the grove each season; take only what is needed, never the last of a kind.'},{r:'Sworn',lo:5,hi:9,d:'Tend and defend the wild; keep a hard vow (never fell a living tree, never carry worked metal into the deep wood); mend the small hurts of the land.'},{r:'Anointed',lo:10,hi:14,d:'A longer penance each season; a wound of the wild to mend over months; made warden of a stretch of forest, bound to defend it.'},{r:'Exalted',lo:15,hi:null,d:'Made an elder of the Circle and keeper of the grove. You lead the seasonal rites, govern the scattered circle-kin, settle their disputes, and train the initiates. You must remain near the wood through the long turnings. The land\'s stewardship roots you; wandering far or long is no longer yours to choose.'}]},
+{n:'The Silver Watch',t:'mag',align:'Lawful Good',binds:'paladins, clerics, and celestial-pact warlocks, Divine / celestial.',cls:["Cleric", "Paladin", "Warlock"],trad:'Divine',ranks:[{r:'Initiate',lo:1,hi:4,d:'Keep the oath (never break a sworn word, never refuse sanctuary); live austere; stand the vigil when called.'},{r:'Sworn',lo:5,hi:9,d:'Hunt the Return\'s heralds; report every sighting; keep no luxury and no excess.'},{r:'Anointed',lo:10,hi:14,d:'A stretch of border to hold; a herald to hunt to its end; no leave to retire or settle while the Return stirs; austerity hardens towards poverty.'},{r:'Exalted',lo:15,hi:null,d:'Given command — made castellan of a fortress-monastery and a stretch of the border. You hold the wall, which means you garrison it: train and discipline the knights, keep the watch-rosters and supply lines, answer for the seal in your charge. The Watch expects you present at your post, not ranging from it; the campaign road narrows to the occasional sortie.'}]},
+{n:'The Seraphic Edict',t:'mag',align:'Lawful Neutral, in service of a Good cause',binds:'clerics and paladins, Divine.',cls:["Cleric", "Paladin"],trad:'Divine',ranks:[{r:'Initiate',lo:1,hi:4,d:'Never knowingly let a cruelty pass unanswered; speak no lie to the innocent; keep both your blade and your conscience clean.'},{r:'Sworn',lo:5,hi:9,d:'Hunt evil you could safely have ignored. Mercy to the wicked is itself a sin — you may not take a bribe, a truce, or an easy rest while a known evil works nearby.'},{r:'Anointed',lo:10,hi:14,d:'Burn what cannot be redeemed, whatever it costs you — a cursed relic, a corrupted town, a friend who has turned. Hesitation is counted as heresy.'},{r:'Exalted',lo:15,hi:null,d:'Become a living verdict. You may never retire, never look away, and never weigh the price; the Edict will spend you to the last drop against the dark.'}]},
+{n:'The Sleeping Flame',t:'mag',align:'Chaotic Neutral',binds:'sorcerers, any Tradition.',cls:["Sorcerer"],trad:'Any',ranks:[{r:'Stirring',lo:1,hi:4,d:'Let it breathe. You must use your magic often and openly; smother it too long and it wakes you with fevers and sparks you cannot control.'},{r:'Waking',lo:5,hi:9,d:'Feed it spectacle. Once between long rests it craves a true expression of power — a spell cast at its fullest, a fire that leaves a mark — or it grows restless and your control slips.'},{r:'Burning',lo:10,hi:14,d:'Its temper is yours now. In moments of strong feeling you must give it voice, loosing magic you did not quite choose; holding the surge back costs you dearly.'},{r:'Ascendant',lo:15,hi:null,d:'You and the ember are no longer separable. You may never go long without burning bright — and one day, not yet, it will want to wake the rest of the way.'}]},
+{n:'The Riven Chord',t:'mag',align:'Chaotic Good',binds:'bards, any Tradition.',cls:["Bard"],trad:'Any',ranks:[{r:'Novice',lo:1,hi:4,d:'Never repeat yourself. Each performance must carry something new — a fresh verse, an untried turn of phrase. Stale art starves the muse.'},{r:'Voice',lo:5,hi:9,d:'Carry the song forward. Between adventures you must compose, perform to a true audience, and add to the unfinished work; a season of silence and the spark dims.'},{r:'Virtuoso',lo:10,hi:14,d:'Spend yourself for the perfect moment. When the Chord swells you must answer it — improvise into danger, play when you should flee, take the brilliant risk over the safe retreat.'},{r:'Maestro',lo:15,hi:null,d:'You are the song’s best hope and its prisoner. You may never lay down your art, and you are bound to seek its final chord even knowing it may be the last note you ever play.'}]},
+{n:'The Door That Wasn’t',t:'mag',align:'Chaotic Neutral (it defies easy alignment)',binds:'any caster, any Tradition.',cls:["ANY_CASTER"],trad:'Any',ranks:[{r:'Threshold',lo:1,hi:4,d:'Keep an open mind, literally. Now and then you must do something genuinely strange at the Door’s prompting — take the wrong turn, answer a question no one asked — and never explain it.'},{r:'Wanderer',lo:5,hi:9,d:'Trade certainty for power. Each time you draw deeply on the Door you forget one small true thing — a name, a face, a fact — and gain a small false one you cannot tell from the rest.'},{r:'Untethered',lo:10,hi:14,d:'Go where it points. You must follow the Door’s pull into places that make no sense, trading safe plans for impossible ones; refuse it and your magic unmoors for a time.'},{r:'Hinge',lo:15,hi:null,d:'You are part of the threshold now, half here and half elsewhere. You may never fully trust your own memory again, and the Door may, at any time, ask you to hold it open while something else comes through.'}]}
+],martial:[
+{n:'The Iron Pact',t:'mar',align:'Lawful Neutral',binds:'any martial, especially Fighters.',cls:["Fighter", "ANY_MARTIAL"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Answer the muster when the company calls. Never take a contract against the Pact. Turn over its share of your spoils.'},{r:'Veteran',lo:5,hi:9,d:'Lead a lance of recruits. The company\'s share of your earnings rises. Vouch for the Pact\'s name, and settle its debts of honour.'},{r:'Champion',lo:10,hi:14,d:'Hold a captaincy and train others. The company\'s contracts come before your own ventures.'},{r:'Master',lo:15,hi:null,d:'Sit the company council and set its contracts. The Pact expects you at the table, not the field. A captain who walks away takes its secrets and clients with them — and that, it will not forgive.'}]},
+{n:'The Bear-Lodge',t:'mar',align:'Chaotic Neutral',binds:'Barbarians.',cls:["Barbarian"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Keep the lodge\'s taboos — never strike a sleeping foe, never refuse a rightful challenge — and bring meat to the fire.'},{r:'Veteran',lo:5,hi:9,d:'Stand in the lodge\'s brawls and blood-feuds. Take a younger fighter under your arm. Defend the totem\'s ground.'},{r:'Champion',lo:10,hi:14,d:'Speak for the lodge in challenges and lead its raids. Your reputation is the lodge\'s — and a coward\'s deed shames you both.'},{r:'Master',lo:15,hi:null,d:'Become a totem-bearer — a living standard of the band. They look to you in every fight. To abandon them now is to break the totem itself, a betrayal the lodge avenges.'}]},
+{n:'The Silent Hand',t:'mar',align:'True Neutral',binds:'Rogues.',cls:["Rogue"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Keep the guild\'s secrets. Tithe a tenth of every haul. Never betray a fellow of the Hand.'},{r:'Veteran',lo:5,hi:9,d:'Run a crew. The tithe rises. Take the jobs the Hand assigns, and fence through its channels.'},{r:'Champion',lo:10,hi:14,d:'Hold a district and settle disputes. The Hand\'s work comes first, and its enemies become yours.'},{r:'Master',lo:15,hi:null,d:'Sit among the guild\'s heads, hidden even from each other. You set the marks and the prices. A master who turns informer or freelances is hunted by the whole Hand — quietly, and for good.'}]},
+{n:'The Order of the Unbroken Shield',t:'mar',align:'Lawful Good',binds:'Fighters and Paladins.',cls:["Fighter", "Paladin"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Uphold the code, protect the weak, and keep your word. Answer your liege\'s summons.'},{r:'Veteran',lo:5,hi:9,d:'Take a squire and hold a post on the order\'s watch. Never leave an innocent to harm while you can prevent it.'},{r:'Champion',lo:10,hi:14,d:'Command a commandery and sit in judgement. The order\'s call and the realm\'s defence come before your own quests.'},{r:'Master',lo:15,hi:null,d:'Be raised Marshal, a pillar of the order. You set its campaigns and guard its honour. A Marshal who breaks faith is stripped, denounced, and made an example — for the order\'s name is its only treasure.'}]},
+{n:'The Ninefold Path',t:'mar',align:'Lawful Neutral',binds:'Monks.',cls:["Monk"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Keep the daily forms and a novice\'s vows. Return to the mountain each year. Do not shame the Path in anger.'},{r:'Veteran',lo:5,hi:9,d:'Teach the lower forms and undertake a pilgrimage the masters set. Master your temper as well as your strikes.'},{r:'Champion',lo:10,hi:14,d:'Hold a dojo and carry the Path\'s judgements into the world. The monastery\'s needs come before your wandering.'},{r:'Master',lo:15,hi:null,d:'Be named a master of a discipline, owed the training of the next generation. One who takes the highest forms and then leaves is held to have stolen them — and the Path sends its own to recover what was taught.'}]},
+{n:'The Crimson Ring',t:'mar',align:'Chaotic Neutral',binds:'any melee combatant.',cls:["ANY_MELEE"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Fight the bouts the Ring books. Never throw a match it hasn\'t fixed. Give the Ring its cut of your winnings.'},{r:'Veteran',lo:5,hi:9,d:'Headline cards and train the up-and-comers. The Ring\'s bookings come before your own travels.'},{r:'Champion',lo:10,hi:14,d:'Wear a champion\'s belt. Your name sells the seats — and the Ring will not let it leave quietly.'},{r:'Master',lo:15,hi:null,d:'Become a name that fills arenas, owned in all but law by the Ring. A champion who walks finds its money and its rivals arrayed against them — to drag them back, or break them.'}]},
+{n:'The Greenwarden Lodge',t:'mar',align:'Neutral Good',binds:'Rangers.',cls:["Ranger"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Walk your patrol and warn the settlements. Never leave a traveller to the wild you could have saved.'},{r:'Veteran',lo:5,hi:9,d:'Hold a stretch of the frontier and take an apprentice tracker. Answer the Lodge\'s call to a hunt.'},{r:'Champion',lo:10,hi:14,d:'Range-master a march and coordinate the wardens. The border\'s defence comes before your own trail.'},{r:'Master',lo:15,hi:null,d:'Be made a Greenwarden of the inner circle, trusted with the worst threats. The Lodge depends on you. A warden who abandons their march leaves people to die — a thing it neither forgets nor forgives.'}]},
+{n:'A Master\'s Debt',t:'mar',align:'Any (it matches the master)',binds:'any class.',cls:["ANY"],trad:'',ranks:[{r:'Recruit',lo:1,hi:4,d:'Serve when they call. Never raise a hand against them. Pass the art on when asked.'},{r:'Veteran',lo:5,hi:9,d:'Take their errands and feuds as your own. Honour their name. Return when summoned.'},{r:'Champion',lo:10,hi:14,d:'Stand as their second and defend their school and students. Their enemies test you first.'},{r:'Master',lo:15,hi:null,d:'You are their heir, expected to carry the art forward and answer for it. To surpass them and then abandon them is the deepest cut a teacher knows. A master scorned can turn every student they ever trained against you.'}]}
+]};
+
+// B2 (v0.100): Bonds — Appendix E (9 magical) + F (8 martial) of the v0.309 Players Guide.
+// Eligibility-gated picker; HD-keyed demand ladder with the character's current rank highlighted.
+// Demand text is verbatim from the guide. Persisted in localStorage per character; the chosen
+// source name mirrors into the printable sheet's bondSource field. LS-only — no shared/fold block touched.
+const BOND_MARTIAL_CLASSES=['Barbarian','Fighter','Monk','Paladin','Ranger','Rogue'];
+function _bondKey(){return 'pactBonds:'+currentCharId();}
+function _bondGet(){try{return JSON.parse(localStorage.getItem(_bondKey())||'{}');}catch(e){return {};}}
+function _bondSet(o){try{localStorage.setItem(_bondKey(),JSON.stringify(o));}catch(e){}}
+function _bondClasses(b){return [b.originClass,b.originClass2].concat(b.unlockedClasses||[]).filter(function(x){return x&&x!=='(none)';});}
+function _bondIsCaster(b){return (b.traditions||[]).some(function(t){return t&&t.name&&t.name!=='(none)';});}
+function bondEligible(b,src){var classes=_bondClasses(b);return src.cls.some(function(tok){
+  if(tok==='ANY')return true;
+  if(tok==='ANY_CASTER')return _bondIsCaster(b);
+  if(tok==='ANY_MARTIAL'||tok==='ANY_MELEE')return classes.some(function(c){return BOND_MARTIAL_CLASSES.indexOf(c)>=0;});
+  return classes.indexOf(tok)>=0;});}
+function bondRankFor(src,hd){for(var i=0;i<src.ranks.length;i++){var r=src.ranks[i];if(hd>=r.lo&&(r.hi==null||hd<=r.hi))return r;}return src.ranks[src.ranks.length-1];}
+function openBonds(){
+  var ov=document.getElementById('bondOv');
+  if(!ov){ov=document.createElement('div');ov.id='bondOv';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:none;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto';ov.addEventListener('click',function(e){if(e.target===ov)closeBonds();});document.body.appendChild(ov);}
+  ov.innerHTML='<div style="background:var(--card);color:var(--ink);border-radius:12px;padding:16px 20px;max-width:700px;width:94%;max-height:92vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.4)">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><h3 style="margin:0">&#9939; Bonds &mdash; Powers &amp; Orders That Bind</h3><button class="btn g" onclick="closeBonds()">&#10005; Close</button></div>'+
+    '<div style="font-size:11.5px;color:var(--grey);margin-bottom:10px">Choose the source your magic or training answers to. Demands grow with Hit Dice &mdash; your current rank is highlighted. Sources are filtered to those your build can take; tick &ldquo;show all&rdquo; to see the rest. Text is verbatim from the v0.309 Players Guide (Appendices E &amp; F).</div>'+
+    '<div id="bondBody"></div>';
+  ov.style.display='flex';_bondRender();
+}
+function closeBonds(){var ov=document.getElementById('bondOv');if(ov)ov.style.display='none';}
+function _bondRender(){
+  var body=document.getElementById('bondBody');if(!body)return;
+  var b=foldBuild(null);var hd=b.hd||1;var sel=_bondGet();
+  var ck=document.getElementById('bondAll');var showAll=!!(ck&&ck.checked);
+  body.innerHTML='<label style="font-size:11px;display:block;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="bondAll" '+(showAll?'checked':'')+' onchange="_bondRender()"> show all sources (ignore eligibility)</label>'+
+    _bondGroup('magical','&#9939; Magical (Appendix E)','mag',b,hd,sel.mag||'',showAll)+
+    _bondGroup('martial','&#9876; Martial (Appendix F)','mar',b,hd,sel.mar||'',showAll);
+}
+function _bondGroup(coll,title,kindArg,b,hd,chosen,showAll){
+  var list=BONDS[coll];var opts='<option value="">&mdash; none &mdash;</option>';
+  list.forEach(function(s){var el=showAll||bondEligible(b,s);if(!el&&s.n!==chosen)return;opts+='<option value="'+esc(s.n)+'"'+(s.n===chosen?' selected':'')+'>'+esc(s.n)+(el?'':' (ineligible)')+'</option>';});
+  var src=null;for(var i=0;i<list.length;i++)if(list[i].n===chosen)src=list[i];
+  var ladder=src?_bondLadder(src,hd):'<div style="font-size:11.5px;color:var(--grey);padding:6px 0">No source chosen.</div>';
+  return '<div style="border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:10px"><div style="font-weight:700;margin-bottom:6px">'+title+'</div>'+
+    '<select onchange="pickBond(\''+kindArg+'\',this.value)" style="width:100%;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink)">'+opts+'</select>'+ladder+'</div>';
+}
+function _bondLadder(src,hd){
+  var cur=bondRankFor(src,hd);
+  var h='<div style="margin-top:8px;font-size:11px;color:var(--grey)">'+esc(src.align)+' &middot; binds '+esc(src.binds)+(src.trad?(' &middot; '+esc(src.trad)+' tradition'):'')+'</div><div style="margin-top:6px">';
+  src.ranks.forEach(function(r){var on=(r===cur);
+    h+='<div style="border-left:3px solid '+(on?'var(--good)':'var(--line)')+';background:'+(on?'var(--lt)':'transparent')+';padding:4px 8px;margin:3px 0;border-radius:0 6px 6px 0">'+
+       '<div style="font-weight:'+(on?'700':'600')+';font-size:11.5px">'+esc(r.r)+' <span style="color:var(--grey);font-weight:600">('+r.lo+(r.hi==null?'+':('&ndash;'+r.hi))+' HD)</span>'+(on?(' <span style="color:var(--good)">&#9664; you (HD '+hd+')</span>'):'')+'</div>'+
+       '<div style="font-size:11px;opacity:.92">'+esc(r.d)+'</div></div>';});
+  return h+'</div>';
+}
+function pickBond(kind,name){var o=_bondGet();o[kind]=name||'';_bondSet(o);
+  try{var both=[o.mag,o.mar].filter(Boolean).join(' · ');csSave(currentCharId(),'bondSource',both);}catch(e){}
+  _bondRender();}
+function seedNew(){ const c=compute(baseBuild()).total;
+  LOG.push({seq:SEQ++,ts:Date.now(),type:'award',amount:50,note:'Level 1 starting AP',label:'Award — Level 1 (50 AP)',rules:RULES});
+  LOG.push({seq:SEQ++,ts:Date.now(),type:'buy',cat:'create',payload:{},cost:c,level:1,label:'Level 1 character (Hit Die + base)',rules:RULES});
+  save(); }
+// init
+// init (gated on the engine bridge above)
+function __boot(){
+RULES = DATA.version;                 // authoritative rules version from the shared engine
+DATA.racialFx={"Goliath: Long Stride (Speed 35)":"Walking speed becomes 35 ft (floor - does not stack with itself; Wood Elf gets this free via lineage).","Dwarf: Darkvision 60 ft":"See in the dark (60 ft).","Dwarf: Dwarven Resilience (poison)":"Advantage on saves vs poison; resistance to poison damage.","Dwarf: Unslowed by Heavy Armour":"No speed penalty from wearing heavy armour.","Elf: Darkvision 60 ft":"See in the dark (60 ft).","Elf: Fey Ancestry":"Advantage vs being charmed; can't be magically put to sleep.","Halfling: Move Through Larger Creatures":"Move through the space of any larger creature.","Gnome: Darkvision 60 ft":"See in the dark (60 ft).","Gnome: Gnomish Cunning (saves vs magic)":"Advantage on INT, WIS and CHA saves vs magic.","Orc: Darkvision 60 ft":"See in the dark (60 ft).","Orc: Relentless Endurance":"Drop to 1 HP instead of 0, once per long rest.","Orc: Adrenaline Rush":"Bonus-action Dash and gain temporary HP.","Dragonborn: Breath Weapon":"Exhale area damage of your draconic ancestry.","Dragonborn: Damage Resistance (ancestry)":"Resistance to your ancestry's damage type.","Tiefling: Darkvision 60 ft":"See in the dark (60 ft).","Tiefling: Damage Resistance (lineage)":"Resistance to your legacy's damage type.","Human: Heroic Inspiration":"Regain Heroic Inspiration (per the core rule).","Dwarf: Stonecunning":"Briefly gain tremorsense to sense through stone.","Dwarf: Tremorsense (tunnels)":"Sense vibrations through the ground in tunnels.","Elf: Trance":"Finish a long rest in 4 hours of trance.","Elf: Superior Darkvision (Drow)":"See twice as far in the dark (120 ft).","Elf: Mask of the Wild (Wood)":"Hide even when only lightly obscured by nature.","Elf: Fleet of Foot (Wood)":"+5 ft walking speed.","Halfling: Naturally Stealthy":"Hide while obscured by a larger creature.","Halfling: Brave (fear resist)":"Advantage on saves vs being frightened.","Halfling: Stout Resilience (poison)":"Advantage vs poison; resistance to poison damage.","Halfling: Halfling Nimbleness":"Move through the space of any larger creature.","Gnome: Speak with Small Beasts (Forest)":"Communicate simple ideas with small animals.","Gnome: Superior Darkvision (Deep)":"See twice as far in the dark (120 ft).","Orc: Savage Critical":"Roll an extra weapon damage die on a critical hit.","Orc: Powerful Build":"Count as one size larger for carrying capacity.","Orc: Aggressive":"Bonus-action move toward an enemy.","Dragonborn: Larger breath dice (L5)":"Your breath weapon's damage die climbs the chain — 1st step (level 5).","Dragonborn: Larger breath dice (L11)":"Your breath weapon's damage die climbs the chain — 2nd step (level 11).","Dragonborn: Larger breath dice (L17)":"Your breath weapon's damage die climbs the chain — 3rd step (level 17).","Dragonborn: Draconic Flight":"Gain a temporary fly speed (at higher tiers).","Tiefling: Infernal Constitution":"Resistance to poison and cold; advantage vs poison."};                       // relocated from inline DATA literal (full racial-trait tooltips)
+load(); if(!LOG.length) seedNew(); else _showVersionBanner();  // show banner if reopened with stale-version save
+$('tt').addEventListener('input',function(){const v=+this.value;viewAt=(v>=LOG.length?null:v);render();});
+render();
+_lsSpellTogLabel();
+}
+window.DATA ? __boot() : document.addEventListener('engine-ready', __boot, { once:true });  // B1: sync the More-menu toggle label with the persisted no-Spellcasting state
+
+
+// ---- manual (hand-typed) field persistence, keyed by a STABLE character id, tagged per tool ----
+// Records survive renames (id is stable), and each tool's records are stored under its own tag
+// ('chargen' vs 'livesheet') so the two tools never collide.
+var PACT_SHEET_KEY='pactCharSheetManual';
+var SHEET_TOOL='generic';                 // each tool sets this: 'chargen' or 'livesheet'
+function _sheetStoreKey(){return PACT_SHEET_KEY+':'+SHEET_TOOL;}
+function genCharId(){return 'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}  // stable per-character id
+function _dstamp(){var d=new Date();var p=function(n){return String(n).padStart(2,'0');};
+  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes());}  // YYYYMMDD-HHMM for save filenames
+function _csStore(){try{return JSON.parse(localStorage.getItem(_sheetStoreKey())||'{}');}catch(e){return {};}}
+function _csKey(id){return (id&&String(id).trim())||'(none)';}
+function csLoad(id){var all=_csStore();return all[_csKey(id)]||{};}
+function csSave(id,fieldId,val){try{var all=_csStore();var k=_csKey(id);(all[k]=all[k]||{})[fieldId]=val;localStorage.setItem(_sheetStoreKey(),JSON.stringify(all));}catch(e){}}
+var _csId='(none)';
+function onSheetField(el){var f=el.getAttribute('data-mf');if(!f)return;var v=(el.type==='checkbox')?(el.checked?'1':''):el.value;csSave(_csId,f,v);}
+// after innerHTML is set, fill manual fields from store (seeded with build defaults baked into data-seed) and wire save
+function hydrateSheet(id){_csId=_csKey(id);var data=csLoad(_csId);
+  document.querySelectorAll('#sheetbody [data-mf]').forEach(function(el){
+    var id=el.getAttribute('data-mf');var stored=data[id];
+    if(el.type==='checkbox'){el.checked=(stored!=null)?(stored==='1'):(el.getAttribute('data-seed')==='1');}
+    else{el.value=(stored!=null)?stored:(el.getAttribute('data-seed')||'');}
+    if(el.addEventListener){el.addEventListener('input',function(){onSheetField(el);});el.addEventListener('change',function(){onSheetField(el);});}
+  });}
+var _CSABCOL={STR:'#E03C28',DEX:'#4CAF50',CON:'#E8872B',INT:'#3F6FD8',WIS:'#00ACC1',CHA:'#9C27B0'};
+function _csEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function _mfIn(id,seed,cls,ph,aria){return '<input class="cs-in '+(cls||'')+'" data-mf="'+id+'" data-seed="'+_csEsc(seed)+'" aria-label="'+_csEsc(aria||ph||id)+'"'+(ph?' placeholder="'+_csEsc(ph)+'"':'')+'>';}
+function _mfTa(id,seed,ph,minh,aria){return '<textarea class="cs-ta" data-mf="'+id+'" data-seed="'+_csEsc(seed)+'" aria-label="'+_csEsc(aria||ph||id)+'"'+(ph?' placeholder="'+_csEsc(ph)+'"':'')+(minh?' style="min-height:'+minh+'px"':'')+'></textarea>';}
+function _mfCk(id,seed,aria){return '<input type="checkbox" data-mf="'+id+'" data-seed="'+(seed?'1':'')+'" aria-label="'+_csEsc(aria||id)+'">';}
+function _sgn(x){return (x>=0?'+':'')+x;}
+
+// The shared, fillable sheet. b=build, r=compute(b), ctx={apText:'...'} (tool-specific AP summary line)
+const FEAT_PG={"Barbarian: Rage":51,"Barbarian: Unarmored Defense":51,"Barbarian: Danger Sense":52,"Barbarian: Reckless Attack":52,"Barbarian: Extra Attack":53,"Barbarian: Fast Movement":53,"Barbarian: Feral Instinct":53,"Barbarian: Brutal Strike":53,"Barbarian: Relentless Rage":53,"Barbarian: Persistent Rage":53,"Barbarian: Indomitable Might":53,"Bard: Bardic Inspiration die":59,"Bard: Font of Inspiration":61,"Bard: Countercharm":61,"Bard: Superior Inspiration":61,"Bard: Words of Creation":61,"Cleric: Divine Order (Protector/Thaumaturge)":70,"Cleric: Channel Divinity":70,"Cleric: Sear Undead / domain blast":71,"Cleric: Blessed Strikes":71,"Cleric: Divine Intervention":71,"Cleric: Greater Divine Intervention":71,"Druid: Wild Shape":80,"Druid: Wild Companion":81,"Druid: Primal Order":80,"Druid: Elemental Fury / Improved circle":81,"Druid: Beast Spells":81,"Druid: Archdruid (free uses)":82,"Fighter: Fighting Style":91,"Fighter: Second Wind":91,"Fighter: Weapon Mastery":52,"Fighter: Action Surge":91,"Fighter: Tactical Mind / Shift / Master":91,"Fighter: Extra Attack":53,"Fighter: Extra Attack (2nd)":53,"Fighter: Extra Attack (3rd)":53,"Fighter: Indomitable":92,"Fighter: Studied Attacks":92,"Monk: Martial Arts die":101,"Monk: Unarmored Defense":51,"Monk: Flurry / Patient Defense / Step":104,"Monk: Unarmored Movement":102,"Monk: Deflect Attacks":102,"Monk: Extra Attack":53,"Monk: Stunning Strike":103,"Monk: Evasion":103,"Monk: Empowered Strikes / Self-Restoration":103,"Monk: Perfect Focus / Body &amp; Mind":102,"Paladin: Lay on Hands":109,"Paladin: Weapon Mastery":52,"Paladin: Fighting Style":91,"Paladin: Channel Divinity":70,"Paladin: Extra Attack":53,"Paladin: Aura of Protection":111,"Paladin: Aura of Courage":111,"Paladin: Radiant Strikes":111,"Paladin: Aura expansions":111,"Ranger: Weapon Mastery":52,"Ranger: Fighting Style":91,"Ranger: Extra Attack":53,"Ranger: Roving / Tireless":121,"Ranger: Nature's Veil":121,"Ranger: Feral Senses":121,"Ranger: Foe Slayer":121,"Rogue: Sneak Attack":129,"Rogue: Weapon Mastery":52,"Rogue: Cunning Action":130,"Rogue: Steady Aim":130,"Rogue: Cunning Strike":130,"Rogue: Uncanny Dodge":131,"Rogue: Evasion":103,"Rogue: Reliable Talent":131,"Rogue: Stroke of Luck":131,"Sorcerer: Innate Sorcery":140,"Sorcerer: Metamagic":141,"Sorcerer: Sorcerous Restoration":141,"Sorcerer: Sorcery Incarnate":141,"Sorcerer: Arcane Apotheosis":141,"Warlock: Magical Cunning":154,"Warlock: Contact Patron":155,"Warlock: Eldritch Master":154,"Wizard: Ritual Adept":166,"Wizard: Arcane Recovery":166,"Wizard: Memorize Spell":167,"Wizard: Spell Mastery":167,"Wizard: Signature Spells":167,"Barbarian: Frenzy":54,"Barbarian: Mindless Rage":54,"Barbarian: Intimidating Presence":54,"Barbarian: Retaliation":54,"Barbarian: Rage of the Wilds":55,"Barbarian: Aspect of the Wilds":55,"Barbarian: Nature Speaker":55,"Barbarian: Power of the Wilds":55,"Barbarian: Vitality of the Tree":56,"Barbarian: Branches of the Tree":56,"Barbarian: Battering Roots":56,"Barbarian: Travel along the Tree":56,"Barbarian: Divine Fury":57,"Barbarian: Warrior of the Gods":57,"Barbarian: Fanatical Focus":57,"Barbarian: Rage of the Gods":57,"Bard: Dazzling Footwork":64,"Bard: Inspiring Movement":64,"Bard: Tandem Footwork":64,"Bard: Leading Evasion":65,"Bard: Mantle of Inspiration":65,"Bard: Beguiling Magic":65,"Bard: Mantle of Majesty":65,"Bard: Unbreakable Majesty":66,"Bard: Cutting Words":66,"Bard: Bonus Skills":40,"Bard: Peerless Skill":67,"Bard: Combat Inspiration":67,"Bard: Extra Attack":53,"Bard: Battle Magic":67,"Cleric: Disciple of Life":73,"Cleric: Preserve Life (Channel Divinity)":73,"Cleric: Blessed Healer":74,"Cleric: Supreme Healing":74,"Cleric: Warding Flare":74,"Cleric: Radiance of the Dawn (Channel Divinity)":74,"Cleric: Improved Warding Flare":75,"Cleric: Corona of Light":75,"Cleric: Blessing of the Trickster":75,"Cleric: Invoke Duplicity (Channel Divinity)":75,"Cleric: Trickster’s Transposition":76,"Cleric: Improved Duplicity":76,"Cleric: War Priest":77,"Cleric: Guided Strike (Channel Divinity)":77,"Cleric: War God’s Blessing":77,"Cleric: Avatar of Battle":77,"Druid: Land's Aid":85,"Druid: Natural Recovery":85,"Druid: Nature's Ward":85,"Druid: Nature's Sanctuary":86,"Druid: Circle Forms":86,"Druid: Improved Circle Forms":87,"Druid: Moonlight Step":87,"Druid: Lunar Form":87,"Druid: Wrath of the Sea":87,"Druid: Aquatic Affinity":87,"Druid: Stormborn":87,"Druid: Oceanic Gift":88,"Druid: Star Map":88,"Druid: Starry Form":88,"Druid: Cosmic Omen":89,"Druid: Full of Stars":89,"Fighter: Combat Superiority (maneuvers)":93,"Fighter: Know Your Enemy":94,"Fighter: Improved Combat Superiority":94,"Fighter: Relentless":94,"Fighter: Improved Critical":96,"Fighter: Remarkable Athlete":96,"Fighter: Additional Fighting Style":96,"Fighter: Survivor":96,"Fighter: War Bond":98,"Fighter: War Magic":98,"Fighter: Arcane Charge":98,"Fighter: Improved War Magic":98,"Fighter: Psionic Power":98,"Fighter: Telekinetic Adept":99,"Fighter: Guarded Mind":99,"Fighter: Telekinetic Master":99,"Monk: Hand of Healing":104,"Monk: Hand of Harm":104,"Monk: Physician's Touch":104,"Monk: Hand of Ultimate Mercy":105,"Monk: Shadow Arts":105,"Monk: Shadow Step":105,"Monk: Improved Shadow Step":105,"Monk: Cloak of Shadows":105,"Monk: Elemental Attunement":106,"Monk: Manipulate Elements":106,"Monk: Stride of the Elements":106,"Monk: Elemental Epitome":106,"Monk: Open Hand Technique":107,"Monk: Wholeness of Body":107,"Monk: Fleet Step":107,"Monk: Quivering Palm":107,"Paladin: Sacred Weapon (Channel Divinity)":113,"Paladin: Aura of Devotion":114,"Paladin: Smite of Protection":114,"Paladin: Holy Nimbus":114,"Paladin: Inspiring Smite (Channel Divinity)":111,"Paladin: Aura of Alacrity":115,"Paladin: Glorious Defense":115,"Paladin: Living Legend":115,"Paladin: Nature's Wrath (Channel Divinity)":115,"Paladin: Aura of Warding":116,"Paladin: Undying Sentinel":116,"Paladin: Elder Champion":116,"Paladin: Vow of Enmity (Channel Divinity)":117,"Paladin: Relentless Avenger":117,"Paladin: Soul of Vengeance":117,"Paladin: Avenging Angel":117,"Ranger: Primal Companion":122,"Ranger: Exceptional Training":123,"Ranger: Bestial Fury":123,"Ranger: Share Spells":123,"Ranger: Dreadful Strikes":124,"Ranger: Otherworldly Glamour":121,"Ranger: Beguiling Twist":125,"Ranger: Misty Wanderer":125,"Ranger: Dread Ambusher":125,"Ranger: Umbral Sight":126,"Ranger: Iron Mind":126,"Ranger: Stalker's Flurry":126,"Ranger: Hunter's Prey":127,"Ranger: Defensive Tactics":127,"Ranger: Superior Hunter's Prey":127,"Ranger: Superior Hunter's Defense":127,"Rogue: Mage Hand Legerdemain":133,"Rogue: Magical Ambush":133,"Rogue: Versatile Trickster":133,"Rogue: Spell Thief":133,"Rogue: Assassinate":134,"Rogue: Infiltration Expertise":134,"Rogue: Envenom Weapons":134,"Rogue: Death Strike":134,"Rogue: Psionic Power / Psychic Blades":98,"Rogue: Soul Blades":136,"Rogue: Psychic Veil":136,"Rogue: Rend Mind":136,"Rogue: Fast Hands":137,"Rogue: Second-Story Work":137,"Rogue: Supreme Sneak":137,"Rogue: Use Magic Device":137,"Rogue: Thief's Reflexes":137,"Sorcerer: Telepathic Speech":145,"Sorcerer: Psionic Sorcery":146,"Sorcerer: Psychic Defenses":146,"Sorcerer: Warping Implosion":146,"Sorcerer: Restore Balance":146,"Sorcerer: Bastion of Law":147,"Sorcerer: Trance of Order":147,"Sorcerer: Clockwork Cavalcade":147,"Sorcerer: Draconic Resilience":148,"Sorcerer: Elemental Affinity":148,"Sorcerer: Dragon Wings":148,"Sorcerer: Dragon Companion":149,"Sorcerer: Wild Magic Surge":150,"Sorcerer: Tides of Chaos":149,"Sorcerer: Bend Luck":149,"Sorcerer: Controlled Chaos":149,"Warlock: Steps of the Fey":159,"Warlock: Misty Escape":159,"Warlock: Beguiling Defenses":159,"Warlock: Bewitching Magic":160,"Warlock: Healing Light":160,"Warlock: Radiant Soul":160,"Warlock: Celestial Resilience":161,"Warlock: Searing Vengeance":161,"Warlock: Dark One's Blessing":161,"Warlock: Dark One's Own Luck":162,"Warlock: Fiendish Resilience":162,"Warlock: Hurl Through Hell":162,"Warlock: Awakened Mind":162,"Warlock: Psychic Spells":163,"Warlock: Clairvoyant Combatant":163,"Warlock: Create Thrall":163,"Wizard: Arcane Ward":172,"Wizard: Projected Ward":172,"Wizard: Spell Breaker":173,"Wizard: Spell Resistance":173,"Wizard: Portent":173,"Wizard: Expert Divination":173,"Wizard: The Third Eye":173,"Wizard: Greater Portent":173,"Wizard: Sculpt Spells":174,"Wizard: Potent Cantrip":174,"Wizard: Empowered Evocation":174,"Wizard: Overchannel":174,"Wizard: Improved Illusions":175,"Wizard: Phantasmal Creatures":175,"Wizard: Illusory Self":175,"Wizard: Illusory Reality":175,"Barbarian: Primal Champion":53,"Bard: Magical Secrets":61,"Warlock: Armor of Shadows":155,"Warlock: Eldritch Mind":155,"Warlock: Pact of the Blade":156,"Warlock: Pact of the Chain":157,"Warlock: Pact of the Tome":157,"Warlock: Eldritch Spear":155,"Warlock: Fiendish Vigor":155,"Warlock: Mask of Many Faces":156,"Warlock: Misty Visions":156,"Warlock: Otherworldly Leap":156,"Warlock: Agonizing Blast":155,"Warlock: Devil's Sight":155,"Warlock: Repelling Blast":157,"Warlock: Lance of Lethargy":215,"Warlock: Gaze of Two Minds":156,"Warlock: Gift of the Depths":156,"Warlock: Far Scribe":184,"Warlock: Eldritch Smite":155,"Warlock: Ascendant Step":155,"Warlock: Master of Myriad Forms":156,"Warlock: One with Shadows":156,"Warlock: Whispers of the Grave":157,"Warlock: Investment of the Chain Master":156,"Warlock: Thirsting Blade":157,"Warlock: Gift of the Protectors":156,"Warlock: Visions of Distant Realms":157,"Warlock: Lifedrinker":156,"Warlock: Devouring Blade":155,"Warlock: Witch Sight":157,"Bard: Magical Discoveries":66,"Barbarian|Path of the Berserker|Frenzy":54,"Barbarian|Path of the Berserker|Mindless Rage":54,"Barbarian|Path of the Berserker|Intimidating Presence":54,"Barbarian|Path of the Berserker|Retaliation":54,"Barbarian|Path of the Wild Heart|Rage of the Wilds":55,"Barbarian|Path of the Wild Heart|Aspect of the Wilds":55,"Barbarian|Path of the Wild Heart|Nature Speaker":55,"Barbarian|Path of the Wild Heart|Power of the Wilds":55,"Barbarian|World Tree|Vitality of the Tree":56,"Barbarian|World Tree|Branches of the Tree":56,"Barbarian|World Tree|Battering Roots":56,"Barbarian|World Tree|Travel along the Tree":56,"Barbarian|Path of the Zealot|Divine Fury":57,"Barbarian|Path of the Zealot|Warrior of the Gods":57,"Barbarian|Path of the Zealot|Fanatical Focus":57,"Barbarian|Path of the Zealot|Rage of the Gods":57,"Bard|College of Dance|Dazzling Footwork":64,"Bard|College of Dance|Inspiring Movement":64,"Bard|College of Dance|Tandem Footwork":64,"Bard|College of Dance|Leading Evasion":65,"Bard|College of Glamour|Mantle of Inspiration":65,"Bard|College of Glamour|Beguiling Magic":65,"Bard|College of Glamour|Mantle of Majesty":65,"Bard|College of Glamour|Unbreakable Majesty":66,"Bard|College of Lore|Cutting Words":66,"Bard|College of Lore|Bonus Skills":40,"Bard|College of Lore|Peerless Skill":67,"Bard|College of Lore|Words of Creation":61,"Bard|College of Lore|Magical Discoveries":66,"Bard|College of Valor|Combat Inspiration":67,"Bard|College of Valor|Extra Attack":53,"Bard|College of Valor|Battle Magic":67,"Cleric|Life Domain|Disciple of Life":73,"Cleric|Life Domain|Preserve Life (Channel Divinity)":73,"Cleric|Life Domain|Blessed Healer":74,"Cleric|Life Domain|Supreme Healing":74,"Cleric|Light Domain|Warding Flare":74,"Cleric|Light Domain|Radiance of the Dawn (Channel Divinity)":74,"Cleric|Light Domain|Improved Warding Flare":75,"Cleric|Light Domain|Corona of Light":75,"Cleric|Trickery Domain|Blessing of the Trickster":75,"Cleric|Trickery Domain|Invoke Duplicity (Channel Divinity)":75,"Cleric|Trickery Domain|Trickster’s Transposition":76,"Cleric|Trickery Domain|Improved Duplicity":76,"Cleric|War Domain|War Priest":77,"Cleric|War Domain|Guided Strike (Channel Divinity)":77,"Cleric|War Domain|War God’s Blessing":77,"Cleric|War Domain|Avatar of Battle":77,"Druid|Circle of the Land|Land's Aid":85,"Druid|Circle of the Land|Natural Recovery":85,"Druid|Circle of the Land|Nature's Ward":85,"Druid|Circle of the Land|Nature's Sanctuary":86,"Druid|Circle of the Moon|Circle Forms":86,"Druid|Circle of the Moon|Improved Circle Forms":87,"Druid|Circle of the Moon|Moonlight Step":87,"Druid|Circle of the Moon|Lunar Form":87,"Druid|Circle of the Sea|Wrath of the Sea":87,"Druid|Circle of the Sea|Aquatic Affinity":87,"Druid|Circle of the Sea|Stormborn":87,"Druid|Circle of the Sea|Oceanic Gift":88,"Druid|Circle of the Stars|Star Map":88,"Druid|Circle of the Stars|Starry Form":88,"Druid|Circle of the Stars|Cosmic Omen":89,"Druid|Circle of the Stars|Full of Stars":89,"Fighter|Battle Master|Combat Superiority (maneuvers)":93,"Fighter|Battle Master|Know Your Enemy":94,"Fighter|Battle Master|Improved Combat Superiority":94,"Fighter|Battle Master|Relentless":94,"Fighter|Champion|Improved Critical":96,"Fighter|Champion|Remarkable Athlete":96,"Fighter|Champion|Additional Fighting Style":96,"Fighter|Champion|Survivor":96,"Fighter|Eldritch Knight|War Bond":98,"Fighter|Eldritch Knight|War Magic":98,"Fighter|Eldritch Knight|Arcane Charge":98,"Fighter|Eldritch Knight|Improved War Magic":98,"Fighter|Psi Warrior|Psionic Power":98,"Fighter|Psi Warrior|Telekinetic Adept":99,"Fighter|Psi Warrior|Guarded Mind":99,"Fighter|Psi Warrior|Telekinetic Master":99,"Monk|Warrior of Mercy|Hand of Healing":104,"Monk|Warrior of Mercy|Hand of Harm":104,"Monk|Warrior of Mercy|Physician's Touch":104,"Monk|Warrior of Mercy|Hand of Ultimate Mercy":105,"Monk|Warrior of Shadow|Shadow Arts":105,"Monk|Warrior of Shadow|Shadow Step":105,"Monk|Warrior of Shadow|Improved Shadow Step":105,"Monk|Warrior of Shadow|Cloak of Shadows":105,"Monk|Warrior of the Elements|Elemental Attunement":106,"Monk|Warrior of the Elements|Manipulate Elements":106,"Monk|Warrior of the Elements|Stride of the Elements":106,"Monk|Warrior of the Elements|Elemental Epitome":106,"Monk|Warrior of the Open Hand|Open Hand Technique":107,"Monk|Warrior of the Open Hand|Wholeness of Body":107,"Monk|Warrior of the Open Hand|Fleet Step":107,"Monk|Warrior of the Open Hand|Quivering Palm":107,"Paladin|Oath of Devotion|Sacred Weapon (Channel Divinity)":113,"Paladin|Oath of Devotion|Aura of Devotion":114,"Paladin|Oath of Devotion|Smite of Protection":114,"Paladin|Oath of Devotion|Holy Nimbus":114,"Paladin|Oath of Glory|Inspiring Smite (Channel Divinity)":111,"Paladin|Oath of Glory|Aura of Alacrity":115,"Paladin|Oath of Glory|Glorious Defense":115,"Paladin|Oath of Glory|Living Legend":115,"Paladin|Oath of the Ancients|Nature's Wrath (Channel Divinity)":115,"Paladin|Oath of the Ancients|Aura of Warding":116,"Paladin|Oath of the Ancients|Undying Sentinel":116,"Paladin|Oath of the Ancients|Elder Champion":116,"Paladin|Oath of Vengeance|Vow of Enmity (Channel Divinity)":117,"Paladin|Oath of Vengeance|Relentless Avenger":117,"Paladin|Oath of Vengeance|Soul of Vengeance":117,"Paladin|Oath of Vengeance|Avenging Angel":117,"Ranger|Beast Master|Primal Companion":122,"Ranger|Beast Master|Exceptional Training":123,"Ranger|Beast Master|Bestial Fury":123,"Ranger|Fey Wanderer|Dreadful Strikes":124,"Ranger|Fey Wanderer|Otherworldly Glamour":121,"Ranger|Fey Wanderer|Beguiling Twist":125,"Ranger|Fey Wanderer|Misty Wanderer":125,"Ranger|Gloom Stalker|Dread Ambusher":125,"Ranger|Gloom Stalker|Umbral Sight":126,"Ranger|Gloom Stalker|Iron Mind":126,"Ranger|Gloom Stalker|Stalker's Flurry":126,"Ranger|Hunter|Hunter's Prey":127,"Ranger|Hunter|Defensive Tactics":127,"Ranger|Hunter|Superior Hunter's Prey":127,"Ranger|Hunter|Superior Hunter's Defense":127,"Rogue|Arcane Trickster|Mage Hand Legerdemain":133,"Rogue|Arcane Trickster|Magical Ambush":133,"Rogue|Arcane Trickster|Versatile Trickster":133,"Rogue|Arcane Trickster|Spell Thief":133,"Rogue|Assassin|Assassinate":134,"Rogue|Assassin|Infiltration Expertise":134,"Rogue|Assassin|Envenom Weapons":134,"Rogue|Assassin|Death Strike":134,"Rogue|Soulknife|Psionic Power / Psychic Blades":98,"Rogue|Soulknife|Soul Blades":136,"Rogue|Soulknife|Psychic Veil":136,"Rogue|Soulknife|Rend Mind":136,"Rogue|Thief|Fast Hands":137,"Rogue|Thief|Second-Story Work":137,"Rogue|Thief|Supreme Sneak":137,"Rogue|Thief|Use Magic Device":137,"Rogue|Thief|Thief's Reflexes":137,"Sorcerer|Aberrant Sorcery|Telepathic Speech":145,"Sorcerer|Aberrant Sorcery|Psionic Sorcery":146,"Sorcerer|Aberrant Sorcery|Psychic Defenses":146,"Sorcerer|Aberrant Sorcery|Warping Implosion":146,"Sorcerer|Clockwork Sorcery|Restore Balance":146,"Sorcerer|Clockwork Sorcery|Bastion of Law":147,"Sorcerer|Clockwork Sorcery|Trance of Order":147,"Sorcerer|Clockwork Sorcery|Clockwork Cavalcade":147,"Sorcerer|Draconic Sorcery|Draconic Resilience":148,"Sorcerer|Draconic Sorcery|Elemental Affinity":148,"Sorcerer|Draconic Sorcery|Dragon Wings":148,"Sorcerer|Draconic Sorcery|Dragon Companion":149,"Sorcerer|Wild Magic Sorcery|Wild Magic Surge":150,"Sorcerer|Wild Magic Sorcery|Tides of Chaos":149,"Sorcerer|Wild Magic Sorcery|Bend Luck":149,"Sorcerer|Wild Magic Sorcery|Controlled Chaos":149,"Warlock|Archfey Patron|Steps of the Fey":159,"Warlock|Archfey Patron|Misty Escape":159,"Warlock|Archfey Patron|Beguiling Defenses":159,"Warlock|Archfey Patron|Bewitching Magic":160,"Warlock|Celestial Patron|Healing Light":160,"Warlock|Celestial Patron|Radiant Soul":160,"Warlock|Celestial Patron|Celestial Resilience":161,"Warlock|Celestial Patron|Searing Vengeance":161,"Warlock|Fiend Patron|Dark One's Blessing":161,"Warlock|Fiend Patron|Dark One's Own Luck":162,"Warlock|Fiend Patron|Fiendish Resilience":162,"Warlock|Fiend Patron|Hurl Through Hell":162,"Warlock|Great Old One Patron|Awakened Mind":162,"Warlock|Great Old One Patron|Clairvoyant Combatant":163,"Warlock|Great Old One Patron|Create Thrall":163,"Wizard|Abjurer|Arcane Ward":172,"Wizard|Abjurer|Projected Ward":172,"Wizard|Abjurer|Spell Breaker":173,"Wizard|Abjurer|Spell Resistance":173,"Wizard|Diviner|Portent":173,"Wizard|Diviner|Expert Divination":173,"Wizard|Diviner|The Third Eye":173,"Wizard|Diviner|Greater Portent":173,"Wizard|Evoker|Potent Cantrip":174,"Wizard|Evoker|Empowered Evocation":174,"Wizard|Evoker|Overchannel":174,"Wizard|Illusionist|Improved Illusions":175,"Wizard|Illusionist|Phantasmal Creatures":175,"Wizard|Illusionist|Illusory Self":175,"Wizard|Illusionist|Illusory Reality":175,"Aasimar: Celestial Revelation":186,"Aasimar: Healing Hands":186,"Aasimar: Light Bearer (Light cantrip)":186,"Dragonborn: Draconic flight":187,"Dwarf: Stonecunning / tremorsense":188,"Elf: Drow darkvision 120 ft":186,"Goliath: Large Form":192,"Goliath: Long Stride (Speed 35)":239,"Halfling: Brave":193,"Halfling: Naturally Stealthy":193,"Human: Heroic Inspiration":13,"Tiefling: Thaumaturgy cantrip":333,"Dragonborn: Larger breath dice (L5)":187,"Dragonborn: Larger breath dice (L11)":187,"Dragonborn: Larger breath dice (L17)":187,"Gnome: Rock Clockwork Device":191};
+function renderCharSheet(b,r,ctx){
+  ctx=ctx||{};var m=r.mods,H=[];var A=_CSABCOL;
+  var lvl=b.hd, tier=r.tier;
+  // ----- header -----
+  H.push('<div class="cs-head">'+
+    '<div class="cs-fld" style="grid-column:1 / span 1"><label>Character Name</label><div style="font-size:18px;font-weight:800;color:var(--navytx)">'+_csEsc(b.name||'Unnamed Hero')+'</div></div>'+
+    '<div class="cs-fld"><label>Class &amp; Level</label><div class="shsmall">'+_csEsc(b.originClass+(b.originClass2&&b.originClass2!=='(none)'?' / '+b.originClass2:'')+'  ·  Lv '+lvl+' (T'+tier+')')+'</div></div>'+
+    '<div class="cs-fld"><label>Player Name</label>'+_mfIn('playerName','','','your name')+'</div>'+
+    '<div class="cs-fld"><label>Species / Heritage</label><div class="shsmall">'+_csEsc((b.species2&&b.species2!=='(none)'?'Half-'+b.species+' '+b.species2:b.species)+'  ·  '+(r.size||'Medium'))+'</div></div>'+
+    '<div class="cs-fld"><label>Alignment</label>'+_mfIn('alignment','','','e.g. NG')+'</div>'+
+    '<div class="cs-fld"><label>Background / Other</label>'+_mfIn('bg','','','background')+'</div>'+
+  '</div>');
+  H.push('<div class="shsub" style="margin:-4px 0 8px">'+_csEsc(ctx.apText||'')+'</div>');
+  {var ap=b.appearance||{};
+   H.push('<div class="shbox"><h5>Appearance</h5><div class="cs-grid3">'+
+     [['Gender','ap_gender'],['Age','ap_age'],['Height','ap_height'],['Build','ap_build'],['Hair','ap_hair'],['Eyes','ap_eyes'],['Skin','ap_skin'],['Marks','ap_marks'],['Voice','ap_voice']].map(function(f){var key=f[1].slice(3);return '<div class="cs-fld"><label>'+f[0]+'</label>'+_mfIn(f[1],ap[key]||'','','')+'</div>';}).join('')+'</div></div>');
+  }
+  H.push('<div class="shcols2">');
+  // ===== LEFT column: abilities, inspiration/prof, saves, skills, passive, profs, tools =====
+  H.push('<div class="shcol">');
+  H.push('<div class="shbox"><h5>Abilities</h5><div class="shabrow">'+ABILS.map(function(a){var sc=(r.effScore&&r.effScore[a])||b.stats[a];return '<div class="shab"><div class="shk" style="color:'+A[a]+'">'+a+'</div><div class="shsc" style="color:'+A[a]+'">'+_sgn(m[a])+'</div><div class="shmod">'+sc+'</div></div>';}).join('')+'</div></div>');
+  H.push('<div class="shbox"><div class="cs-insp"><b style="color:var(--blue)">Inspiration</b> '+_mfCk('insp',false,'Inspiration')+'<span class="grow"></span><b style="color:var(--blue)">Prof Bonus</b> <span style="font-size:15px;font-weight:800;color:var(--navytx)">'+_sgn(r.prof)+'</span></div></div>');
+  H.push('<div class="shbox"><h5>Saving Throws</h5>'+ABILS.map(function(a){var pro=(b.saves||[]).includes(a);var bn=m[a]+(pro?r.prof:0)+(r.saveAdj||0);return '<div class="shrow'+(pro?' on':'')+'"><span style="color:'+A[a]+';font-weight:'+(pro?'700':'400')+'">'+(pro?'●':'○')+' '+a+'</span><span>'+_sgn(bn)+'</span></div>';}).join('')+'</div>');
+  if((b.ki||0)>0)H.push('<div class="shbox"><h5>Ki / Focus Points</h5><div class="shrow on"><span>● Total Ki / Focus points</span><span>'+(b.ki||0)+'</span></div></div>');if((b.sorcery||0)>0)H.push('<div class="shbox"><h5>Sorcery Points</h5><div class="shrow on"><span>● Total sorcery points</span><span>'+(b.sorcery||0)+'</span></div></div>');H.push('<div class="shbox"><h5>Skills</h5>'+DATA.skillList.map(function(s){var bo=(b.skills||[]).includes(s[0]),ex=(b.expertise||[]).includes(s[0]);var bn=m[s[1]]+(bo?r.prof:0)+(ex?r.prof:0);return '<div class="shrow'+(bo?' on':'')+'"><span>'+(bo?'●':'○')+' '+s[0]+' <i style="color:'+A[s[1]]+'">('+s[1]+')</i>'+(ex?' ✦':'')+'</span><span>'+_sgn(bn)+'</span></div>';}).join('')+'</div>');
+  {var perc=(b.skills||[]).includes("Perception"),pex=(b.expertise||[]).includes("Perception");var pp=10+m.WIS+(perc?r.prof:0)+(pex?r.prof:0);
+   H.push('<div class="shbox"><h5>Passive Perception</h5><div class="shsmall" style="font-size:20px;font-weight:800;text-align:center;color:var(--navytx)">'+pp+'</div></div>');}
+  H.push('<div class="shbox"><h5>Proficiencies &amp; Languages</h5><div class="shsmall">Languages: '+((b.languageNames&&b.languageNames.filter(Boolean).length)?b.languageNames.filter(Boolean).join(', ')+' ('+(b.languages||1)+')':(b.languages||1))+
+    '<br>Weapons: '+([(b.weaponProf&&b.weaponProf.simple?'Simple':''),(b.weaponProf&&b.weaponProf.allMartial?'All martial':(b.weaponProf&&b.weaponProf.martial?b.weaponProf.martial+' martial':'')),(b.weaponProf&&b.weaponProf.improvised?'Improvised':'')].filter(Boolean).join(', ')||'—')+
+    '<br>Armour: '+([(b.armour&&b.armour.light?'Light':''),(b.armour&&b.armour.medium?'Medium':''),(b.armour&&b.armour.heavy?'Heavy':''),(b.armour&&b.armour.shield?'Shield':'')].filter(Boolean).join(', ')||'—')+
+    '<br>Masteries: '+((b.masteries||[]).join(', ')||'—')+'</div></div>');
+  {var tl=[].concat(b.tools||[],b.instruments||[],b.customProfs||[]);
+   if(tl.length)H.push('<div class="shbox"><h5>Tools &amp; Instruments</h5>'+tl.map(function(t){var ab=DATA.toolAbil&&DATA.toolAbil[t];var tex=(b.toolExpertise||[]).includes(t);var bn=ab?(m[ab]+r.prof+(tex?r.prof:0)):null;return '<div class="shrow on"><span>● '+t+(ab?' <i style="color:'+A[ab]+'">('+ab+')</i>':'')+(tex?' ✦':'')+'</span><span>'+(bn!=null?_sgn(bn):'')+'</span></div>';}).join('')+'</div>');}
+  {var _lin=(DATA.lineageSpells&&DATA.lineageSpells[b.lineage])||[];var _ls=(b.racialSpells||[]);if(b.lineage||_ls.length){var _lbox='<div class="shbox"><h5>Lineage'+(b.lineage?' — '+b.lineage:'')+' <span class="shtag">spell-like</span></h5>';if(!_ls.length){_lbox+='<div style="font-size:10.5px;color:var(--grey)">No lineage spell-likes bought yet.</div>';}else{_lbox+=_ls.map(function(nm){var sp=_lin.find(function(x){return x[0]===nm;});var kind='spell-like — '+(sp?(sp[2]===0?'cantrip':'L'+sp[2]+' · 1/long rest'):'innate');return '<div class="shrow on"><span>● '+_csEsc(nm)+'</span><span style="color:var(--grey)">'+kind+'</span></div>';}).join('');}_lbox+='</div>';H.push(_lbox);}}
+  H.push('</div>');
+  // ===== MIDDLE column: combat, HP, attacks (EDITABLE), equipment (EDITABLE) =====
+  H.push('<div class="shcol">');
+  H.push('<div class="shbox"><h5>Combat</h5><div class="shkpis">'+[['AC',r.ac],['Init',_sgn(r.init)],['Speed',r.speed+'ft'],['Prof',_sgn(r.prof)],['Hit Die',lvl+'d6'],['Tier','T'+tier]].map(function(k){return '<div class="shkpi"><b>'+k[1]+'</b><span>'+k[0]+'</span></div>';}).join('')+'</div>'+
+    '<div class="cs-hpbox"><div class="cs-hp big"><label>Current HP  ·  (max '+r.hp+')</label>'+_mfIn('curHP',String(r.hp),'cs-num','','Current HP')+'</div>'+
+    '<div class="cs-hp"><label>Temp HP</label>'+_mfIn('tempHP','','cs-num','','Temporary HP')+'</div>'+
+    '<div class="cs-hp"><label>Hit Dice left</label>'+_mfIn('hdLeft',String(lvl),'cs-num','','Hit Dice remaining')+'</div></div>'+
+    '<div class="dsv"><b>Death Saves</b> <span>✓ '+_mfCk('ds_s1',false,'Death save success 1')+_mfCk('ds_s2',false,'Death save success 2')+_mfCk('ds_s3',false,'Death save success 3')+'</span> <span>✗ '+_mfCk('ds_f1',false,'Death save failure 1')+_mfCk('ds_f2',false,'Death save failure 2')+_mfCk('ds_f3',false,'Death save failure 3')+'</span></div></div>');
+  // attacks / weapons table (editable, persisted)
+  var wrows='';for(var i=0;i<6;i++){var wn=i+1;wrows+='<tr><td>'+_mfIn('wpn'+i+'_name','','','','Weapon '+wn+' name')+'</td><td>'+_mfIn('wpn'+i+'_atk','','','','Weapon '+wn+' attack bonus')+'</td><td>'+_mfIn('wpn'+i+'_dmg','','','','Weapon '+wn+' damage and type')+'</td></tr>';}
+  H.push('<div class="shbox"><h5>Attacks &amp; Spellcasting</h5><table class="wtbl"><colgroup><col><col class="cw-atk"><col class="cw-dmg"></colgroup><tr><th>Name</th><th>Atk Bonus</th><th>Damage / Type</th></tr>'+wrows+'</table></div>');
+  H.push('<div class="shbox"><h5>Equipment</h5>'+_mfTa('equip','',"weapons, armour, gear…",160)+
+    '<div class="cs-coins">'+[['CP','cp'],['SP','sp'],['GP','gp'],['PP','pp']].map(function(c){return '<div class="cs-coin"><label>'+c[0]+'</label>'+_mfIn(c[1],'','','',c[0]+' coins')+'</div>';}).join('')+'</div>'+
+    '<div class="shsmall" style="margin-top:4px;color:var(--grey)">Starting gold from AP: <b>'+r.goldGp+' gp</b></div></div>');
+  var F=[];(b.features||[]).forEach(function(l){F.push({t:(l.split(': ')[1]||l),pg:(typeof FEAT_PG!=='undefined'?FEAT_PG[l]:0)});});(b.subAbilities||[]).forEach(function(k){var a=DATA.subAbilMap[k];if(a)F.push({t:a.sub+': '+a.name,pg:(typeof FEAT_PG!=='undefined'?FEAT_PG[k]:0)});});(b.racialTraits||[]).forEach(function(l){F.push({t:(l.split(': ')[1]||l),pg:(typeof FEAT_PG!=='undefined'?FEAT_PG[l]:0)});});(b.boons||[]).forEach(function(x){var _ea=(b.epicBoonAbil||{})[x];F.push({t:'Boon — '+x+(_ea?(' (+2 '+_ea+')'):'')});});
+  H.push('<div class="shbox"><h5>Features &amp; Traits</h5><div class="shsmall">'+(F.length?F.map(function(x){return '• <span'+(x.pg?' title="PHB p.'+x.pg+'" style="cursor:help;border-bottom:1px dotted var(--grey,#999)"':'')+'>'+_csEsc(x.t)+'</span>';}).join('<br>'):'—')+'</div></div>');
+  if((b.drawbacks||[]).length)H.push('<div class="shbox"><h5>Drawbacks</h5><div class="shsmall">'+b.drawbacks.map(function(d){return '• '+d;}).join('<br>')+'</div></div>');
+  {var _fsn=(b.fightingStyleNames||[]).filter(Boolean);if(_fsn.length){var _fsb='<div class="shbox"><h5>Fighting Style</h5>';_fsn.forEach(function(nm){var ar=(DATA.arts||{})[nm]||{};_fsb+='<div class="shrow on"><span>'+_csEsc(nm)+'</span><span style="color:var(--grey);font-size:9px">'+_csEsc(ar.fx||'')+'</span></div>';if(ar.grantCantrips){var _gc=((b.fsCantripNames||{})[nm]||[]).filter(Boolean);_fsb+='<div class="shrow"><span style="padding-left:10px;font-size:10px">'+_csEsc(ar.grantCantrips.list)+' cantrips ('+_csEsc(ar.grantCantrips.ab)+'): '+_csEsc(_gc.join(', ')||'(unnamed)')+'</span></div>';}});_fsb+='</div>';H.push(_fsb);}}
+  {var _mmn=(b.metamagicNames||[]).filter(Boolean);if(_mmn.length){var _mmb='<div class="shbox"><h5>Metamagic</h5>';_mmn.forEach(function(nm){var mo=((DATA.metamagicOptions||[]).filter(function(o){return o.n===nm;})[0])||{};_mmb+='<div class="shrow on"><span>'+_csEsc(nm)+(mo.sp?(' <em style="color:var(--grey);font-size:9px">'+mo.sp+' SP</em>'):'')+'</span><span style="color:var(--grey);font-size:9px">'+_csEsc(mo.fx||'')+'</span></div>';});_mmb+='</div>';H.push(_mmb);}}
+  {var _mvn=(b.maneuverNames||[]).filter(Boolean);if(_mvn.length){var _mvb='<div class="shbox"><h5>Battle Master Maneuvers</h5>';_mvn.forEach(function(nm){var mo=((DATA.maneuvers||[]).filter(function(o){return o.n===nm;})[0])||{};_mvb+='<div class="shrow on"><span>'+_csEsc(nm)+'</span><span style="color:var(--grey);font-size:9px">'+_csEsc(mo.fx||'')+'</span></div>';});_mvb+='</div>';H.push(_mvb);}}
+  // bonds — recorded + shown (lightweight; no demand-ladder engine)
+  {var _mag=[];(b.traditions||[]).forEach(function(t){if(t&&t.name&&t.name!=='(none)')(t.disciplines||[]).forEach(function(d){if(d&&d.bound&&d.name&&d.name!=='(none)')_mag.push(t.name+' › '+d.name);});});
+   var _mar=(b.martiallyBound&&b.martiallyBound!=='(none)')?b.martiallyBound:null;
+   if(_mag.length||_mar){var _bb='<div class="shbox bondbox"><h5>Bonds</h5>';
+     _mag.forEach(function(s){_bb+='<div class="bondline"><span class="bbk">⛓ Magical</span>'+_csEsc(s)+'</div>';});
+     if(_mar)_bb+='<div class="bondline"><span class="bbk">⚔ Martial</span>'+_csEsc(_mar)+'</div>';
+     _bb+='<div class="cs-fld" style="margin-top:5px"><label>Bound to (source)</label>'+_mfIn('bondSource','','','e.g. The Maw, The Iron Pact')+'</div>';
+     _bb+='<div class="cs-fld" style="margin-top:4px"><label>Obligations / notes</label>'+_mfTa('bondNotes','','demands, tithe, the band you owe…',46)+'</div>';
+     _bb+='</div>';H.push(_bb);}}
+  // spellcasting (computed)
+  var discs=[];(b.traditions||[]).forEach(function(t){if(t&&t.name&&t.name!=='(none)')(t.disciplines||[]).forEach(function(d){if(d&&d.name&&d.name!=='(none)')discs.push({t:t,d:d});});});
+  if(discs.length&&!ctx.noSpell){var _sps='<div class="spellsec"><div class="sphd">Spellcasting</div><div class="splegend">● spell · ◆ cantrip — every entry here is a spell. Lineage &amp; innate items are spell-like abilities, shown separately.</div><div class="spbody">';
+    discs.forEach(function(x,i){var di=r.discInfo[i];if(!di)return;var dd=x.d;var rank=x.t.rank;var castAt=rank>0?(DATA.hdGate[rank-1]||(2*rank-1)):'—';
+      _sps+='<div class="spdisc"><div class="spname">'+_csEsc(x.t.name+' › '+x.d.name)+(di.isOrigin?' ★':'')+(di.bound?' <span class="bbadge">⛓ Bound</span>':'')+'</div>';
+      _sps+='<div class="spstrip"><div class="spstat"><small>Ability</small><b style="color:'+(A[di.castAb]||'var(--navy)')+'">'+di.castAb+'</b></div>'+
+        '<div class="spstat"><small>Save DC</small><b>'+di.saveDC+'</b></div>'+
+        '<div class="spstat"><small>Spell Atk</small><b>'+_sgn(di.spellAtk)+'</b></div>'+
+        '<div class="spstat"><small>Rank · Cast</small><b>'+rank+'<span style="font-size:9px;font-weight:600;color:var(--grey)"> · Lv'+castAt+'</span></b></div></div>';
+      if(di.isWarlock){_sps+='<div class="slotgrid"><div class="slotcell" style="grid-column:1 / span 9"><div class="lv">PACT SLOTS</div><div class="n">'+(dd.pactSlots||0)+' @ L'+di.pactLevel+'</div></div></div>';}
+      else{_sps+='<div class="slotgrid">';for(var L=1;L<=9;L++){var sl=(dd.slots||[])[L-1]||0;_sps+='<div class="slotcell'+(sl?'':' empty')+'"><div class="lv">L'+L+'</div><div class="n">'+(sl||'—')+'</div></div>';}_sps+='</div>';}
+      var groups=[];var cn=dd.cantrips||0;
+      if(cn){var ch='';for(var c=0;c<cn;c++){var cv=((dd.cantripNames||[])[c]||'').trim();ch+='<div class="sprow cant'+(cv?'':' ph')+'"><span class="bul">'+(cv?'◆':'○')+'</span><span>'+(cv?_csEsc(cv):('cantrip '+(c+1)))+'</span></div>';}groups.push('<div class="splevel"><div class="lh"><span>Cantrips</span><span class="sl">'+cn+' · at will</span></div>'+ch+'</div>');}
+      if(!di.isWarlock){for(var L2=1;L2<=9;L2++){var slot=(dd.slots||[])[L2-1]||0;var kn=(dd.known||[])[L2-1]||0;if(!slot&&!kn)continue;var rows='';
+        if(di.prepared){for(var p=0;p<slot;p++)rows+='<div class="sprow ph"><span class="bul">○</span><span>L'+L2+' prepared slot</span></div>';}
+        else{for(var k=0;k<kn;k++){var kv=(((dd.knownNames||[])[L2-1]||[])[k]||'').trim();rows+='<div class="sprow'+(kv?'':' ph')+'"><span class="bul">'+(kv?'●':'○')+'</span><span>'+(kv?_csEsc(kv):('L'+L2+' spell '+(k+1)))+'</span></div>';}}
+        var tag=di.prepared?'prepared':(kn+' known');groups.push('<div class="splevel"><div class="lh"><span>Level '+L2+'</span><span class="sl">'+slot+' slot'+(slot!==1?'s':'')+' · '+tag+'</span></div>'+rows+'</div>');}}
+      (b.subSpellBundles||[]).forEach(function(_bk){var _pp=String(_bk).split("|");if(_pp[0]!==x.d.name)return;var _terr=_pp[2]||"";var _g=((DATA.spellGrants||{}).subclassSpells||{})[_pp[0]+": "+_pp[1]+(_terr?" ("+_terr+")":"")];if(!_g||!_g.spells||!_g.spells.length)return;var _rows=_g.spells.slice().sort(function(a,c){return (a.spellLevel-c.spellLevel)||(a.name<c.name?-1:1);}).map(function(sp){return '<div class="sprow"><span class="bul">✦</span><span>'+_csEsc(sp.name)+' <em style="color:var(--grey);font-size:9px">'+(sp.spellLevel?("L"+sp.spellLevel):"cantrip")+'</em></span></div>';}).join("");groups.push('<div class="splevel"><div class="lh"><span>'+_csEsc(_pp[1])+' — always prepared</span><span class="sl">subclass</span></div>'+_rows+'</div>');});
+      var cols=[[],[],[]];groups.forEach(function(g,gi){cols[gi%3].push(g);});
+      _sps+='<div class="spcols">'+cols.map(function(cc){return '<div>'+cc.join('')+'</div>';}).join('')+'</div>';
+      if(di.prepared){_sps+=_mfTa('spp_'+i,'','list the spells you prepare…',38)+'<div class="phnote">Greyed rows show prepared-slot capacity — type your prepared spells above.</div>';}
+      _sps+='</div>';});
+    _sps+='</div></div>';H.push(_sps);}
+  if(r.dabbler>0){var _df='';for(var _d=0;_d<r.dabbler;_d++){var _nm=String(((b.dabblerCantripNames||[])[_d])||'').trim();if(_nm)_df+='<div class="shrow on"><span>'+_csEsc(_nm)+'</span><span style="color:var(--grey)">cantrip</span></div>';}H.push('<div class="shbox"><h5>Cantrips (no Foundation) <span class="shtag">spell</span></h5><div class="shsmall" style="margin-bottom:3px">'+r.dabbler+' Wizard-list cantrips · cast with INT · Save DC '+r.saveDC+'</div>'+_df+'</div>');}{var _innf='',_inc=0;for(var _IL=1;_IL<=9;_IL++){var _ic=(b.innate||[])[_IL-1]||0;_inc+=_ic;for(var _iN=0;_iN<_ic;_iN++){var _nm2=String((((b.innateNames||[])[_IL-1]||[])[_iN])||'').trim();if(_nm2)_innf+='<div class="shrow on"><span>'+_csEsc(_nm2)+'</span><span style="color:var(--grey)">L'+_IL+'</span></div>';}}if(_inc)H.push('<div class="shbox"><h5>Innate Spell-like Abilities (1 / long rest) <span class="shtag">spell-like</span></h5><div class="shsmall" style="margin-bottom:3px">'+_inc+' innate spell'+(_inc>1?'s':'')+'</div>'+_innf+'</div>');}
+  {var _grf='',_gn=0,_gm=b.grantNames||{};Object.keys(_gm).forEach(function(_gk){(_gm[_gk]||[]).forEach(function(_sp){_sp=String(_sp||'').trim();if(_sp){_gn++;_grf+='<div class="shrow on"><span>✦ '+_csEsc(_sp)+'</span><span style="color:var(--grey)">'+_csEsc(_gk.split(': ')[1]||_gk)+'</span></div>';}});});if(_gn)H.push('<div class="shbox"><h5>Granted Spells (free) <span class="shtag">spell</span></h5><div class="shsmall" style="margin-bottom:3px">'+_gn+' off-list spell'+(_gn>1?'s':'')+' from choice-grants — no AP cost</div>'+_grf+'</div>');}
+  if(!ctx.noSpell)H.push('<div class="shbox"><h5>Spell Slots &amp; Known / Prepared</h5><div class="cs-grid3" style="margin-bottom:4px">'+[1,2,3,4,5,6,7,8,9].map(function(L){return '<div class="cs-fld"><label>L'+L+'</label>'+_mfIn('slot_L'+L,'','','','Level '+L+' slots (total / used)')+'</div>';}).join('')+'</div>'+_mfTa('spelllist','','cantrips and spells — known or prepared, by level…',180)+'</div>');
+  H.push('</div>');
+  H.push('</div>');
+  {var ap=b.appearance||{};
+   H.push('<div class="shbox"><h5>Background &amp; Personality</h5><div class="cs-grid2">'+
+     [['Home town','ap_hometown',ap.hometown],['Faith','ap_faith',ap.faith],['Ambition','ap_ambition',ap.ambition],['Greatest fear','ap_fear',ap.fear],['Prized possession','ap_prized',ap.prized],['Companion','ap_companion',ap.companion]].map(function(f){return '<div class="cs-fld"><label>'+f[0]+'</label>'+_mfIn(f[1],f[2]||'','','')+'</div>';}).join('')+'</div>'+'<div class="cs-fld" style="margin-top:6px"><label>Description</label>'+_mfTa('ap_overall',ap.overall||'','one-paragraph description of how the character looks and comes across…',110)+'</div></div>');}
+  H.push('<div class="shbox"><h5>Allies &amp; Organisations</h5>'+_mfTa('allies','','people and factions…',54)+'</div>');
+  H.push('<div class="shbox"><h5>Backstory &amp; Notes</h5>'+_mfTa('notes','','backstory, session notes, treasure…',80)+'</div>');
+  H.push('<div class="shbox"><h5>AP Ledger</h5><table class="shledger">'+r.lines.filter(function(l){return l[1]!==0;}).map(function(l){return '<tr><td>'+l[0]+'</td><td>'+l[1]+'</td></tr>';}).join('')+'<tr class="tot"><td>TOTAL</td><td>'+r.total+'</td></tr></table></div>');
+  return H.join('');
+}
+
+// ===== Shared AI portrait-prompt builder (IDENTICAL logic in both tools) =====
+var CLASS_GEAR={Barbarian:'wielding a great axe',Fighter:'holding a longsword',Monk:'in a martial stance, bare-handed',
+ Rogue:'gripping a pair of daggers',Paladin:'bearing a holy blade',Ranger:'holding a longbow',Bard:'carrying a lute',
+ Cleric:'raising a holy symbol',Druid:'with a gnarled wooden staff',Sorcerer:'crackling with innate magic',
+ Warlock:'wreathed in eldritch shadow',Wizard:'holding an arcane staff and spellbook'};
+var CLASS_MOOD={Barbarian:'rugged wilderness',Fighter:'gritty martial',Monk:'serene monastery',Rogue:'shadowy urban',
+ Paladin:'radiant holy',Ranger:'wild forest',Bard:'colourful tavern',Cleric:'sacred temple',Druid:'verdant grove',
+ Sorcerer:'crackling arcane',Warlock:'eerie occult',Wizard:'mystical arcane'};
+// returns {portrait, fullbody} from a build — the single source of truth used by both tools
+function buildPortraitPrompts(b){
+  b=b||{}; var a=b.appearance||{};
+  var arm=b.armour||{}; var attire=arm.heavy?'heavy plate armour':arm.medium?'sturdy mail armour':arm.light?'light leather armour':"simple traveller's clothes";
+  if(arm.shield)attire+=' with a shield';
+  var caster=(b.traditions||[]).some(function(t){return t&&t.name&&t.name!=='(none)';});
+  var lvlWord=b.hd>=13?'veteran':b.hd>=8?'seasoned':b.hd>=4?'capable':'young';
+  var who=[lvlWord,(a.age?a.age+'-year-old':''),(a.gender?String(a.gender).split('/')[0]:''),(b.species2&&b.species2!=='(none)'?'Half-'+b.species+' '+b.species2:b.species),b.originClass+(b.originClass2&&b.originClass2!=='(none)'?'/'+b.originClass2:'')].filter(Boolean).join(' ');
+  var parts=['Fantasy character art of a '+who];
+  if(a.build||a.height)parts.push([a.build,a.height&&('about '+a.height+' tall')].filter(Boolean).join(', '));
+  if(a.hair&&a.hair.indexOf('none')<0)parts.push(a.hair+' hair'); else if(a.hair)parts.push(a.hair);
+  if(a.eyes)parts.push(a.eyes+' eyes');
+  if(a.nose)parts.push(a.nose+' nose');
+  if(a.skin)parts.push(a.skin);
+  if(a.marks)parts.push(a.marks);
+  parts.push('wearing '+attire);
+  if(CLASS_GEAR[b.originClass])parts.push(CLASS_GEAR[b.originClass]);
+  if(caster)parts.push('glowing arcane energy');
+  if(a.demeanour)parts.push(a.demeanour+' expression');
+  parts.push((CLASS_MOOD[b.originClass]||'fantasy')+' atmosphere');
+  var base=parts.filter(Boolean).join(', ');
+  return {portrait: base+', head-and-shoulders character portrait, highly detailed digital painting, dramatic lighting, neutral background.',
+          fullbody: base+', full-body character illustration showing the entire figure from head to toe, dynamic standing pose, full outfit and footwear visible, highly detailed digital painting, dramatic lighting, simple background.'};
+}
+function _csCopy(text){
+  try{if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text);return true;}}catch(e){}
+  try{var ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.cssText='position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta);ta.focus();ta.select();var okc=document.execCommand('copy');document.body.removeChild(ta);if(okc)return true;}catch(e){}
+  try{window.prompt('Copy this prompt (Ctrl/Cmd-C):',text);}catch(e){}
+  return false;}
+// reuse an existing #portraitview modal if present (char-gen has one), else create it (live sheet)
+function showPortraitModal(p){
+  var ov=$('portraitview');
+  if(!ov){ov=document.createElement('div');ov.id='portraitview';
+    ov.style.cssText='position:fixed;inset:0;background:var(--bg,#fff);z-index:60;overflow:auto;padding:14px';
+    ov.innerHTML='<div class="shtop"><b>📷 AI Portrait</b><button class="btn" onclick="copyPortrait()">📋 Copy portrait</button><button class="btn" onclick="copyPortrait(\'full\')">📋 Copy full-body</button><button class="btn ghost" onclick="closePortrait()">✕ Close</button></div>'+
+      '<div style="max-width:760px;margin:0 auto"><p class="hint">Paste either prompt into any AI image generator (Midjourney, DALL·E, Firefly…). Edit freely first.</p>'+
+      '<h4>Head-and-shoulders portrait</h4><textarea id="portraittext" spellcheck="false" style="width:100%;height:140px;font:inherit;padding:10px;border:1px solid var(--line,#ccc);border-radius:8px"></textarea>'+
+      '<h4 style="margin-top:10px">Full-body figure</h4><textarea id="portraittext_full" spellcheck="false" style="width:100%;height:140px;font:inherit;padding:10px;border:1px solid var(--line,#ccc);border-radius:8px"></textarea></div>';
+    document.body.appendChild(ov);}
+  var t=$('portraittext');if(t)t.value=p.portrait;
+  var tf=$('portraittext_full');if(tf)tf.value=p.fullbody;
+  ov.style.display='block';
+}
+function genPortraitFor(b){showPortraitModal(buildPortraitPrompts(b));}
+function copyPortrait(which){var t=$(which==='full'?'portraittext_full':'portraittext');if(!t)return;var ok=_csCopy(t.value);
+  if(typeof flash==='function')flash(ok?((which==='full'?'Full-body':'Portrait')+' prompt copied to clipboard.'):'Prompt shown — copy it manually.');}
+function closePortrait(){var ov=$('portraitview');if(ov)ov.style.display='none';}
+
+SHEET_TOOL='livesheet';
+function setTheme(t){if(t)document.body.setAttribute('data-theme',t);else document.body.removeAttribute('data-theme');
+  try{localStorage.setItem('pactTheme',t||'');}catch(e){}}
+(function(){let t='';try{t=localStorage.getItem('pactTheme')||'';}catch(e){}if(t){setTheme(t);const s=$('themesel');if(s)s.value=t;}})();
+var _nameSwapUsed=false;
+function _swapAvailFrom(hd,log){var cap=2,used=0;(log||[]).forEach(function(e){if(e&&e.type==='names'&&typeof e.swapHD==='number'&&e.swapHD===hd)used+=(e.swapN||1);});var avail=(hd>=2)?Math.max(0,cap-used):0;return {ok:(avail>0),avail:avail,cap:cap,hd:hd,used:used};}
+function _nameSwapAvail(){return _swapAvailFrom((foldBuild(null).hd)||1,LOG);}
+function _nameSwapBanner(SW){var c,t;if(SW.avail>0){c='var(--good)';t='\uD83D\uDD04 <b>'+SW.avail+' free swap'+(SW.avail>1?'s':'')+' available</b> (Hit Die '+SW.hd+'). Change up to '+SW.avail+' locked spell/cantrip/arcanum/style \u2014 use them before your next Hit Die.';}else if(SW.hd>=2){c='var(--grey)';t='\u2713 Free swaps used at Hit Die '+SW.hd+'. More unlock at your next Hit Die.';}else{c='var(--grey)';t='Free swaps unlock as you gain Hit Dice \u2014 none yet at Hit Die '+SW.hd+'. Languages can\u2019t be unlearned.';}return '<div style="font-size:11px;border:1px solid var(--line);border-left:3px solid '+c+';background:var(--lt);border-radius:0 6px 6px 0;padding:6px 9px;margin:0 0 8px">'+t+'</div>';}
+// On swapping a KNOWN spell, offer a level picker: choosing a level filters the list to that level's
+// eligible spells (default = the slot's level). Cost is the chosen level's full price (free if a Hit-Die
+// swap covers it) — computed live by _swapRecount via the picked spell's level. v0.314.
+// Reliable JS spell/name picker — replaces the flaky native <datalist> in "Name your spells".
+// Reads the row's associated datalist (by id, via _dlid) and shows a filtered clickable dropdown.
+// Known rows carry their slot-level list; the swap level picker repoints _dlid to a new level. v0.314.
+function _spellAC(inp){
+  if(!inp||inp.tagName!=='INPUT'||inp._sac)return; inp._sac=1; inp.setAttribute('autocomplete','off');
+  if(inp.getAttribute('list')){inp._dlid=inp.getAttribute('list'); inp.removeAttribute('list');}
+  var menu=document.createElement('div'); menu.className='spellac'; menu._owner=inp; inp._sacMenu=menu;
+  menu.style.cssText='position:fixed;z-index:10000;max-height:240px;overflow:auto;background:var(--card,#fff);color:var(--ink,#222);border:1px solid var(--line,#ccc);border-radius:8px;box-shadow:0 6px 22px rgba(0,0,0,.20);font-size:12px;display:none';
+  document.body.appendChild(menu);
+  var items=[],active=-1;
+  function cand(){var dl=inp._dlid&&document.getElementById(inp._dlid);return dl?[].slice.call(dl.querySelectorAll('option')).map(function(o){return o.value;}):[];}
+  function close(){menu.style.display='none';active=-1;}
+  function place(){var r=inp.getBoundingClientRect();menu.style.left=r.left+'px';menu.style.top=(r.bottom+2)+'px';menu.style.minWidth=Math.max(220,r.width)+'px';}
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function pick(v){inp.value=v;close();inp._sacPick=1;inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));inp._sacPick=0;}
+  function draw(){menu.innerHTML=items.length?items.map(function(f,i){return '<div class="spellac-i" data-i="'+i+'" style="padding:5px 10px;cursor:pointer;white-space:nowrap;'+(i===active?'background:var(--line,#e3ebf7)':'')+'">'+esc(f)+'</div>';}).join(''):'<div style="padding:5px 10px;color:var(--grey,#888)">no match</div>';}
+  function filt(){if(inp.readOnly||inp._sacPick)return; var q=inp.value.trim().toLowerCase(); var all=cand(); items=(q?all.filter(function(x){return x.toLowerCase().indexOf(q)>=0;}):all).slice(0,80); active=items.length?0:-1; draw(); place(); menu.style.display='block';}
+  inp.addEventListener('focus',filt); inp.addEventListener('input',filt);
+  inp.addEventListener('keydown',function(e){ if(menu.style.display==='none')return;
+    if(e.key==='ArrowDown'){e.preventDefault();active=Math.min(items.length-1,active+1);draw();var a=menu.querySelector('[data-i="'+active+'"]');if(a)a.scrollIntoView({block:'nearest'});}
+    else if(e.key==='ArrowUp'){e.preventDefault();active=Math.max(0,active-1);draw();var a2=menu.querySelector('[data-i="'+active+'"]');if(a2)a2.scrollIntoView({block:'nearest'});}
+    else if(e.key==='Enter'){if(active>=0&&items[active]){e.preventDefault();pick(items[active]);}}
+    else if(e.key==='Escape'){close();}});
+  inp.addEventListener('blur',function(){setTimeout(close,150);});
+  menu.addEventListener('mousedown',function(e){var d=e.target.closest('.spellac-i');if(d){e.preventDefault();pick(items[+d.dataset.i]);}});
+  window.addEventListener('scroll',function(){if(menu.style.display!=='none')place();},true);
+  window.addEventListener('resize',function(){if(menu.style.display!=='none')place();});
+}
+function _nameSwapLevelPicker(i){
+  if(!i||i.dataset.kind!=='known')return; if(i.parentNode.querySelector('.nmlvl'))return;
+  var kp=String(i.dataset.k||'').split('::'); if(kp[0]!=='tr')return; var ti=kp[1],di=kp[2];
+  var opts=''; for(var L=1;L<=9;L++){var dl=document.getElementById('dl_'+ti+'_'+di+'_'+L); if(dl&&dl.querySelector('option'))opts+='<option value="'+L+'"'+(String(L)===String(i.dataset.level)?' selected':'')+'>L'+L+' · '+_swapCost(L)+' AP</option>';}
+  if(!opts)return;
+  var sel=document.createElement('select'); sel.className='nmlvl'; sel.title='Swap to a spell of this level - you pay that level price (free if a Hit-Die swap covers it)';
+  sel.style.cssText='flex:0 0 auto;font-size:11px;padding:2px 4px;border:1px solid var(--line);border-radius:5px;margin-right:4px'; sel.innerHTML=opts;
+  sel.onchange=function(){i._dlid='dl_'+ti+'_'+di+'_'+this.value; i.removeAttribute('list'); i.value=''; i.dataset.level=this.value; i.focus(); _swapRecount();};
+  i.parentNode.insertBefore(sel,i);
+}
+function _nameSwapUnlock(btn){var i=btn.parentNode.querySelector('.nmf');if(!i)return;var known=(i.dataset.kind==='known');if(!known&&!_nameSwapAvail().ok){flash('Cantrips swap only with your free Hit-Die swap \u2014 none available this Hit Die.');return;}i.readOnly=false;i.style.background='';i.style.color='';_nameSwapLevelPicker(i);i.focus();btn.textContent='\u270E';btn.title='Swapping this pick';_swapRecount();}
+function _nameSwapHD(){var SW=_nameSwapAvail();if(!SW.ok)return 0;var ch=false;document.querySelectorAll('#namesBox .nmf[data-swap="1"]').forEach(function(e){if(String(e.value)!==String(e.dataset.orig||''))ch=true;});return ch?(SW.hd||0):0;}
+function _swapCost(L){return (((DATA.knownUnit)||[])[L-1]||1);}function _spellLevel(nm){var s=(DATA.spells||[]).filter(function(x){return x.n===nm;})[0];return s?Math.max(1,s.l):0;}
+/* Pure free/paid split — the only place the swap economy is decided. Free-only rows
+ * (cantrips/arcanum/styles) MUST be covered by free Hit-Die swaps (no paid path); known
+ * spells take any remaining free swaps, then pay the per-level learning cost. Kept pure +
+ * exported so tests/swap-cost.cjs can lock it without a DOM. */
+function _swapSplit(freeCap,knownCosts,nonKnownCount){freeCap=Math.max(0,+freeCap||0);nonKnownCount=Math.max(0,+nonKnownCount||0);var illegal=(nonKnownCount>freeCap);var freeLeft=Math.max(0,freeCap-nonKnownCount);var costs=(knownCosts||[]).slice().sort(function(a,b){return b-a;});var paid=0,n=0;for(var k=freeLeft;k<costs.length;k++){paid+=costs[k];n++;}var rowsLen=nonKnownCount+costs.length;var freeUsed=illegal?freeCap:Math.min(freeCap,rowsLen);return {paid:paid,n:n,illegal:illegal,freeUsed:freeUsed,freeLeft:freeLeft};}
+function _swapTally(){var SW=_nameSwapAvail();var freeCap=SW.avail||0;var rows=[].slice.call(document.querySelectorAll('#namesBox .nmf[data-swap="1"]')).filter(function(e){return String(e.value)!==String(e.dataset.orig||'');});var nonKnown=rows.filter(function(e){return e.dataset.kind!=='known';});var _slotLv=function(e){var _p=String(e.dataset.k||'').split('::');return +_p[4]||0;};
+  // F3: a cross-level known swap's slot CONVERSION already auto-charges the level DIFFERENCE in compute();
+  // the free/paid economy here adds the ORIGINAL level's unit as the paid surcharge for same-level AND
+  // cross-level-UP rows, so a FREE upgrade pays only the difference while a PAID upgrade pays the full new
+  // cost (diff + unit[oldL] = unit[newL]). Down-swaps (refund-only) stay out of the economy. v0.322-F3
+  var knowns=rows.filter(function(e){var oL=_slotLv(e),nL=_spellLevel(e.value)||oL;return e.dataset.kind==='known'&&nL>=oL;});var costs=knowns.map(function(e){return _swapCost(_slotLv(e)||_spellLevel(e.value)||(+e.dataset.level||0));});var sp=_swapSplit(freeCap,costs,nonKnown.length);return {paid:sp.paid,n:sp.n,illegal:sp.illegal,avail:economy(null).available,freeUsed:sp.freeUsed,freeCap:freeCap,freeLeft:sp.freeLeft,nonKnown:nonKnown.length,knownN:knowns.length};}
+/* Per-discipline duplicate guard — you can't know the same spell twice within one tradition/
+ * discipline (its cantrips + known spells + arcanum). The same spell may still appear in a
+ * different discipline. Returns the list of duplicated names. */
+function _swapDupes(){var by={},out=[];[].slice.call(document.querySelectorAll('#namesBox .nmf')).forEach(function(e){var p=String(e.dataset.k||'').split('::');if(p[0]!=='tr'||['c','k','a'].indexOf(p[3])<0)return;var v=String(e.value||'').trim();if(!v)return;var disc=p[1]+'::'+p[2],key=v.toLowerCase();by[disc]=by[disc]||{};if(by[disc][key]){if(out.indexOf(v)<0)out.push(v);}else by[disc][key]=1;});return out;}
+function _swapRecount(){var box=document.getElementById('swapCostBox');if(!box)return;var dup=_swapDupes();if(dup.length){box.innerHTML='<span style="color:var(--bad)">\u26D4 \u201C'+String(dup[0]).replace(/</g,'&lt;')+'\u201D is already in that spell list \u2014 pick a different spell (no duplicates within a discipline).</span>';return;}var t=_swapTally();var changed=t.nonKnown+t.knownN;if(t.illegal){box.innerHTML='<span style="color:var(--bad)">\u26D4 Cantrips, arcanum &amp; styles swap only with free Hit-Die swaps (you have '+t.freeCap+'), but you\u2019ve changed '+t.nonKnown+'. Undo one.</span>';return;}if(changed===0){box.innerHTML='';return;}var parts=[];if(t.freeUsed>0)parts.push('<b>'+t.freeUsed+'</b> free swap'+(t.freeUsed>1?'s':'')+' used');var freeRemain=Math.max(0,t.freeCap-t.freeUsed);if(freeRemain>0)parts.push(freeRemain+' free left');if(t.paid>0){var afford=t.avail>=t.paid;parts.push('<b style="color:'+(afford?'var(--ink)':'var(--bad)')+'">'+t.n+' paid = '+t.paid+' AP</b>'+(afford?'':' \u2014 not enough ('+t.avail+' available)'));}var allFree=(t.paid<=0);box.innerHTML='<span style="color:'+(allFree?'var(--good)':'var(--ink)')+'">'+(allFree?'\u2713 ':'')+parts.join(' \u00B7 ')+(t.paid>0?'. Normal learning cost; no refund on the ones replaced.':'.')+'</span>';}
+function _nmRow(key,label,val,listId,lock,swapAvail){var has=String(val||'').trim()!=='';var _kp=String(key).split('::');var _isKnown=(_kp[0]==='tr'&&_kp[3]==='k');var _kL=_isKnown?(+_kp[4]||0):0;var locked=has&&(lock==='lang'||lock==='swap');var ev=String(val||'').replace(/"/g,'&quot;');var base='flex:1;min-width:0;font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:5px';var inp='<input class="nmf" data-k="'+key+'" oninput="_swapRecount()"'+((locked&&lock==='swap')?(' data-swap="1" data-orig="'+ev+'"'+(_isKnown?(' data-kind="known" data-level="'+_kL+'"'):'')):'')+(listId?' list="'+listId+'" autocomplete="off"':'')+' value="'+ev+'"'+(locked?' readonly':'')+' style="'+base+(locked?';background:var(--lt);color:var(--grey)':'')+'">';var extra='';if(locked&&lock==='lang')extra='<span title="A language can\u2019t be unlearned." style="flex:0 0 auto;font-size:12px">\uD83D\uDD12</span>';else if(locked&&lock==='swap')extra='<span title="Locked \u2014 saved in your log" style="flex:0 0 auto;font-size:12px">\uD83D\uDD12</span>'+(swapAvail?'<button type="button" class="nmswap" title="Swap. Your 2 free Hit-Die swaps per level can change any cantrip, Mystic Arcanum, fighting style, Metamagic option, maneuver, or choice-grant spell. Known spells: swap free at the same level, or pay only the level difference to move up a level." onclick="_nameSwapUnlock(this)" style="flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:5px;font-size:12px;padding:2px 7px;cursor:pointer">\uD83D\uDD04</button>':'');return '<div class="nmrow" style="display:flex;gap:6px;align-items:center;margin:2px 0"><span style="flex:0 0 118px;font-size:11px;color:var(--grey)">'+label+'</span>'+inp+extra+'</div>';}
+const LANGS_2024=["Common","Common Sign Language","Draconic","Dwarvish","Elvish","Giant","Gnomish","Goblin","Halfling","Orc","Abyssal","Celestial","Deep Speech","Druidic","Infernal","Primordial","Sylvan","Thieves' Cant","Undercommon"];
+// owned choice-grant triggers (off-list free spells: Magical Secrets / Eldritch Knight / Arcane Trickster). Wizard Spellbook excluded — same as the normal Wizard list.
+function _ownedGrants(b){var cg=(DATA.spellGrants&&DATA.spellGrants.choiceGrants)||{};var CLS=["Artificer","Bard","Cleric","Druid","Paladin","Ranger","Sorcerer","Warlock","Wizard"];var out=[];
+  Object.keys(cg).forEach(function(key){if(key==="Wizard: Spellbook")return;var g=cg[key],owned=false,parts=key.split(": "),kcls=parts[0],ksub=parts[1];
+    if((DATA.features||{})[key]){owned=(b.features||[]).indexOf(key)>=0;}
+    else if(ksub){owned=((b.freeSub||{})[kcls]===ksub)||(b.subAbilities||[]).some(function(k){return k.indexOf(kcls+"|"+ksub+"|")===0;});}
+    if(!owned)return;out.push({key:key,label:(key.split(": ")[1]||key),from:CLS.filter(function(c){return (g.from||"").indexOf(c)>=0;}),note:g.from||""});});
+  return out;}
+function _fsRefreshCantrips(){var box=document.getElementById('fsCantripBox');if(!box)return;var b=foldBuild(null);var SW=_nameSwapAvail();var sel=[];document.querySelectorAll('#namesBox .nmf[data-k^="fs::"]').forEach(function(el){var v=(el.value||'').trim();if(v&&sel.indexOf(v)<0)sel.push(v);});var H='';sel.forEach(function(st){var a=(DATA.arts||{})[st];if(!a||!a.grantCantrips)return;var gc=a.grantCantrips;var dlid='dl_fscl_'+gc.list;H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">'+String(st).replace(/</g,'&lt;')+' \u2014 '+gc.list+' cantrips (cast with '+gc.ab+')</h3>';for(var cj=0;cj<(gc.n||2);cj++)H+=_nmRow('fsc::'+st+'::'+cj,'Cantrip '+(cj+1),(((b.fsCantripNames||{})[st]||[])[cj])||'',dlid,'swap',SW.ok);});box.innerHTML=H;box.querySelectorAll('.nmf').forEach(_spellAC);}
+function openNames(){var b=foldBuild(null);var H='',DLS='';var SW=_nameSwapAvail();_nameSwapUsed=false;document.querySelectorAll('.spellac').forEach(function(m){m.remove();});(function(){var EB=(b.boons||[]).filter(function(x){return (DATA.boons[x]||{}).epic;});if(!EB.length)return;H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Epic Boon — ability raised (+2, max 30)</h3>';EB.forEach(function(bn){var cur=(b.epicBoonAbil||{})[bn]||'';var opts=['STR','DEX','CON','INT','WIS','CHA'].map(function(a){return '<option value="'+a+'"'+(a===cur?' selected':'')+'>'+a+'</option>';}).join('');H+='<div style="display:flex;gap:6px;align-items:center;margin:2px 0"><label style="font-size:11px;flex:1">'+bn+'</label><select class="nmf" data-k="eb::'+bn+'"><option value="">— choose —</option>'+opts+'</select></div>';});})();
+  function _e(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+  function _dl(id,arr){DLS+='<datalist id="'+id+'">'+arr.map(function(n){return '<option value="'+_e(n)+'">';}).join('')+'</datalist>';}
+  var _nl=b.languages||1;if(_nl>0){_dl('dl_lang',LANGS_2024);H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Languages</h3>';for(var i=0;i<_nl;i++)H+=_nmRow('lang::'+i,'Language '+(i+1),(b.languageNames||[])[i]||'','dl_lang','lang',false);}
+  var dc=b.dabblerCantrips||0;if(dc){_dl('dl_dab',(DATA.spells||[]).filter(function(s){return s.l===0&&s.c.indexOf('Wizard')>=0;}).map(function(s){return s.n;}).sort());H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Out-of-Tradition cantrips</h3>';for(var i=0;i<dc;i++)H+=_nmRow('dab::'+i,'Cantrip '+(i+1),(b.dabblerCantripNames||[])[i]||'','dl_dab','swap',false);}
+  for(var L=1;L<=9;L++){var ic=(b.innate||[])[L-1]||0;if(ic){_dl('dl_inn_'+L,(DATA.spells||[]).filter(function(s){return s.l===L;}).map(function(s){return s.n;}).sort());H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Innate L'+L+'</h3>';for(var i=0;i<ic;i++)H+=_nmRow('inn::'+L+'::'+i,'L'+L+' spell '+(i+1),(((b.innateNames||[])[L-1])||[])[i]||'','dl_inn_'+L,'swap',false);}}
+  (b.traditions||[]).forEach(function(t,ti){(t.disciplines||[]).forEach(function(d,di){if(!d.name||d.name==='(none)')return;var elig=eligibleSpells(b,ti,di)||{byLevel:{},maxLv:9};for(var Lx=0;Lx<=Math.max(0,elig.maxLv|0);Lx++)_dl('dl_'+ti+'_'+di+'_'+Lx,(elig.byLevel[Lx]||[]).map(function(x){return x.name;}));var _allKn=[];for(var La=1;La<=9;La++)(elig.byLevel[La]||[]).forEach(function(x){if(_allKn.indexOf(x.name)<0)_allKn.push(x.name);});_allKn.sort();_dl('dl_'+ti+'_'+di+'_all',_allKn);var off=[];for(var Lo=0;Lo<=9;Lo++)(elig.byLevel[Lo]||[]).forEach(function(x){if(x.off)off.push(x.name);});H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">'+_e(t.name)+' › '+_e(d.name)+'</h3>';if(off.length)H+='<div style="font-size:10.5px;color:var(--teal);margin:0 0 3px">Subclass adds: '+_e(off.join(', '))+'</div>';var cn=d.cantrips||0;for(var i=0;i<cn;i++)H+=_nmRow('tr::'+ti+'::'+di+'::c::'+i,'Cantrip '+(i+1),(d.cantripNames||[])[i]||'','dl_'+ti+'_'+di+'_0','swap',SW.ok);for(var L=1;L<=9;L++){var kn=(d.known||[])[L-1]||0;var hint=(L>elig.maxLv)?' ⚠R'+L:'';for(var i=0;i<kn;i++)H+=_nmRow('tr::'+ti+'::'+di+'::k::'+L+'::'+i,'L'+L+' spell '+(i+1)+hint,(((d.knownNames||[])[L-1])||[])[i]||'','dl_'+ti+'_'+di+'_'+L,'swap',(SW.ok||economy(null).available>=_swapCost(L)));}for(var ai=0;ai<4;ai++){var aL=6+ai;var ac=(d.arcanum||[])[ai]||0;if(ac){_dl('dl_arc_'+ti+'_'+di+'_'+aL,(DATA.spells||[]).filter(function(s){return s.l===aL&&s.c.indexOf('Warlock')>=0;}).map(function(s){return s.n;}).sort());H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Mystic Arcanum L'+aL+'</h3>';for(var aj=0;aj<ac;aj++)H+=_nmRow('tr::'+ti+'::'+di+'::a::'+ai+'::'+aj,'L'+aL+' arcanum '+(aj+1),(((d.arcanumNames||[])[ai])||[])[aj]||'','dl_arc_'+ti+'_'+di+'_'+aL,'swap',SW.ok);}}});});
+  (function(){var FSF=['Fighter: Fighting Style','Paladin: Fighting Style','Ranger: Fighting Style','Fighter: Additional Fighting Style'];var slots=(b.features||[]).filter(function(f){return FSF.indexOf(f)>=0;}).length;if(!slots)return;var opts=(DATA.artList||[]).filter(function(x){var a=DATA.arts[x]||{};if(a.cat!=='Fighting Style')return false;if(a.reqFeat&&(b.features||[]).indexOf(a.reqFeat)<0)return false;return true;});_dl('dl_fs',opts);H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Fighting Style</h3>';for(var fj=0;fj<slots;fj++)H+=_nmRow('fs::'+fj,'Style '+(fj+1),(b.fightingStyleNames||[])[fj]||'','dl_fs','swap',SW.ok);})();(function(){var _ls={};(DATA.artList||[]).forEach(function(x){var a=DATA.arts[x];if(a&&a.cat==='Fighting Style'&&a.grantCantrips)_ls[a.grantCantrips.list]=1;});Object.keys(_ls).forEach(function(L){_dl('dl_fscl_'+L,(DATA.spells||[]).filter(function(sp){return sp.l===0&&sp.c.indexOf(L)>=0;}).map(function(sp){return sp.n;}).sort());});})();H+='<div id="fsCantripBox"></div>';(function(){var mc=(b.features||[]).filter(function(f){return f==='Sorcerer: Metamagic';}).length;if(!mc)return;_dl('dl_mm',(DATA.metamagicOptions||[]).map(function(o){return o.n;}));H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Metamagic options</h3>';for(var mj=0;mj<mc;mj++)H+=_nmRow('mm::'+mj,'Option '+(mj+1),(b.metamagicNames||[])[mj]||'','dl_mm','swap',SW.ok);})();(function(){if((b.features||[]).indexOf('Fighter: Combat Superiority (maneuvers)')<0)return;var mc=3+(b.maneuverBuys||0);_dl('dl_mv',(DATA.maneuvers||[]).map(function(o){return o.n;}));H+='<h3 style="color:var(--teal);font-size:12px;margin:10px 0 2px">Battle Master maneuvers <span style="font-weight:400;color:var(--grey);font-size:10px">— 3 free, extras on the 4/5/6… ladder</span></h3>';H+='<div style="margin:2px 0 4px"><button onclick="buyManeuver()" style="font-size:11px;padding:2px 8px;cursor:pointer">+ Buy maneuver ('+(4+(b.maneuverBuys||0))+' AP)</button></div>';for(var vj=0;vj<mc;vj++)H+=_nmRow('mv::'+vj,'Maneuver '+(vj+1),(b.maneuverNames||[])[vj]||'','dl_mv','swap',SW.ok);})();(function(){var GR=_ownedGrants(b);if(!GR.length)return;H+='<h3 style="color:var(--good);font-size:12px;margin:12px 0 2px">✦ Choice-grant spells <span style="color:var(--grey);font-weight:400;font-size:10.5px">— free off-list picks; not bought</span></h3>';GR.forEach(function(g,gi){var pool=(DATA.spells||[]).filter(function(s){return s.c.some(function(c){return g.from.indexOf(c)>=0;});}).map(function(s){return s.n;}).sort();_dl('dl_gr_'+gi,pool);H+='<div style="font-size:11px;color:var(--good);margin:6px 0 2px;font-weight:600">'+_e(g.label)+' <span style="color:var(--grey);font-weight:400">— '+_e(g.note)+'</span></div>';var prev=(b.grantNames||{})[g.key]||[];for(var i=0;i<6;i++)H+=_nmRow('grant::'+gi+'::'+i,'Spell '+(i+1),prev[i]||'','dl_gr_'+gi,'swap',SW.ok);});})();
+  if(!H){flash('Nothing to name yet — buy spells or feats first.');return;}
+  var ov=document.getElementById('namesOv');if(!ov){ov=document.createElement('div');ov.id='namesOv';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';document.body.appendChild(ov);}
+  ov.innerHTML='<div style="background:var(--card);border-radius:12px;padding:18px 22px;max-width:580px;width:92%;max-height:88vh;overflow:auto"><h2 style="margin:0 0 4px;color:var(--navytx);font-size:17px">✎ Name your spells &amp; languages</h2><p style="margin:0 0 6px;font-size:11.5px;color:var(--grey)">Pick from your class &amp; subclass list, or type any name. Saved spells &amp; cantrips lock; each Hit Die lets you swap one. Languages can\u2019t be unlearned.</p>'+_nameSwapBanner(SW)+'<div id="swapCostBox" style="font-size:11px;margin:-2px 0 8px"></div><div id="namesBox">'+H+DLS+'</div><div style="margin-top:14px;text-align:right"><button class="btn g" onclick="closeNames()" title="You can name them later from the ✎ Name button">Skip for now</button> <button class="btn" onclick="saveNames()">Save &amp; lock in</button></div></div>';
+  ov.style.display='flex';document.querySelectorAll('#namesBox .nmf[data-k^="fs::"]').forEach(function(_el){_el.addEventListener('input',_fsRefreshCantrips);_el.addEventListener('change',_fsRefreshCantrips);});document.querySelectorAll('#namesBox .nmf').forEach(_spellAC);_fsRefreshCantrips();}
+
+function openSpellBrowser(){
+  var ov=document.getElementById('spbOv');
+  if(!ov){ov=document.createElement('div');ov.id='spbOv';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:none;align-items:flex-start;justify-content:center;padding:4vh 0';ov.onclick=function(e){if(e.target===ov)closeSpellBrowser();};document.body.appendChild(ov);}
+  var CL=[];(DATA.spells||[]).forEach(function(s){(s.c||[]).forEach(function(c){if(CL.indexOf(c)<0)CL.push(c);});});CL.sort();
+  var clOpts='<option value="">All classes</option>'+CL.map(function(c){return '<option value="'+c+'">'+c+'</option>';}).join('');
+  var lvOpts='<option value="">All levels</option><option value="0">Cantrip</option>'+[1,2,3,4,5,6,7,8,9].map(function(L){return '<option value="'+L+'">Level '+L+'</option>';}).join('');
+  ov.innerHTML='<div style="background:var(--card);color:var(--ink);border-radius:12px;padding:16px 20px;max-width:640px;width:92%;max-height:90vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.3)"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h2 style="margin:0;color:var(--blue);font-size:16px">&#x1F50D; Spell Reference <span style="color:var(--grey);font-weight:400;font-size:11px">&mdash; '+(DATA.spells||[]).length+' spells (2024 PHB)</span></h2><button onclick="closeSpellBrowser()" style="border:none;background:none;font-size:18px;cursor:pointer;color:var(--grey)">&#x2715;</button></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input id="spbQ" placeholder="Search by name&hellip;" oninput="_spbRender()" style="flex:1;min-width:140px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink)"><select id="spbL" onchange="_spbRender()" style="padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink)">'+lvOpts+'</select><select id="spbC" onchange="_spbRender()" style="padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink)">'+clOpts+'</select></div><div id="spbResults"></div></div>';
+  ov.style.display='flex';_spbRender();
+}
+function closeSpellBrowser(){var ov=document.getElementById('spbOv');if(ov)ov.style.display='none';}
+function _spbRender(){
+  var qe=document.getElementById('spbQ');var q=(qe?qe.value:'').toLowerCase().trim();
+  var lv=(document.getElementById('spbL')||{}).value||'';var cl=(document.getElementById('spbC')||{}).value||'';
+  var rows=(DATA.spells||[]).filter(function(s){if(q&&s.n.toLowerCase().indexOf(q)<0)return false;if(lv!==''&&s.l!==+lv)return false;if(cl&&(s.c||[]).indexOf(cl)<0)return false;return true;});
+  var out=document.getElementById('spbResults');if(!out)return;
+  function _e(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  if(!rows.length){out.innerHTML='<p style="color:var(--grey);text-align:center;padding:16px">No spells match.</p>';return;}
+  var byL={};rows.forEach(function(s){(byL[s.l]=byL[s.l]||[]).push(s);});
+  var H='';for(var L=0;L<=9;L++){var g=byL[L];if(!g)continue;g.sort(function(a,b){return a.n<b.n?-1:1;});
+    H+='<h3 style="margin:10px 0 3px;color:var(--teal);font-size:12px;text-transform:uppercase;letter-spacing:.04em">'+(L===0?'Cantrips':'Level '+L)+' <span style="color:var(--grey);font-weight:400">('+g.length+')</span></h3>';
+    H+=g.map(function(s){return '<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px"><b>'+_e(s.n)+'</b> <span style="color:var(--grey);font-size:10.5px">'+_e((s.c||[]).join(', '))+'</span></div>';}).join('');}
+  out.innerHTML='<p style="color:var(--grey);font-size:11px;margin:0 0 4px">'+rows.length+' spell'+(rows.length===1?'':'s')+'</p>'+H;
+}
+
+
+/* ── Campaign Rules — DM bar tool + player loader (encrypted, travels in the save) ── */
+function _campEnc(o){var pl=JSON.stringify(o);var c=pl+'|'+_apHash(pl);var u=encodeURIComponent(c);var x='';for(var i=0;i<u.length;i++)x+=String.fromCharCode(u.charCodeAt(i)^_AK.charCodeAt(i%_AK.length));return 'PACTRULES:'+btoa(x);}
+function _campDec(code){if(!code||code.indexOf('PACTRULES:')!==0)return null;try{var x=atob(code.slice(10));var u='';for(var i=0;i<x.length;i++)u+=String.fromCharCode(x.charCodeAt(i)^_AK.charCodeAt(i%_AK.length));var c=decodeURIComponent(u);var p=c.lastIndexOf('|');if(p<0)return null;var pl=c.slice(0,p),hh=c.slice(p+1);if(_apHash(pl)!==hh)return null;var o=JSON.parse(pl);return (o&&typeof o==='object')?{n:String(o.n||''),boons:o.boons||[],draws:o.draws||[],arts:o.arts||[]}:null;}catch(e){return null;}}
+function campBarred(kind,name){var c=(foldBuild(null)||{}).campaign;return !!(c&&c[kind]&&c[kind].indexOf(name)>=0);}
+function closeCampaign(){var ov=document.getElementById('campOv');if(ov)ov.style.display='none';}
+function _campRows(kind,items,barred){return items.map(function(n){var ck=(barred.indexOf(n)>=0)?' checked':'';return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;width:49%;margin:1px 0;box-sizing:border-box"><input type="checkbox" class="campck" data-kind="'+kind+'" data-name="'+String(n).replace(/"/g,'&quot;')+'"'+ck+'> '+String(n).replace(/</g,'&lt;')+'</label>';}).join('');}
+function openCampaign(){
+  var cur=(foldBuild(null)||{}).campaign||{n:'',boons:[],draws:[],arts:[]};
+  var ov=document.getElementById('campOv');
+  if(!ov){ov=document.createElement('div');ov.id='campOv';ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:none;align-items:flex-start;justify-content:center;padding:3vh 0';ov.onclick=function(e){if(e.target===ov)closeCampaign();};document.body.appendChild(ov);}
+  var boons=(DATA.boonList||[]).slice().sort(),draws=(DATA.drawbackList||[]).slice().sort(),arts=(DATA.artList||[]).slice().sort();
+  var nbar=(cur.boons||[]).length+(cur.draws||[]).length+(cur.arts||[]).length;
+  ov.innerHTML='<div style="background:var(--card);color:var(--ink);border-radius:12px;padding:16px 20px;max-width:680px;width:94%;max-height:92vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.35)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;color:var(--blue);font-size:16px">&#x1F6E1; Campaign Rules</h2><button onclick="closeCampaign()" style="border:none;background:none;font-size:18px;cursor:pointer;color:var(--grey)">&#x2715;</button></div>'+
+    '<p style="font-size:11.5px;color:var(--grey);margin:4px 0 8px"><b>DM:</b> name the campaign, tick anything to bar, then <b>Generate code</b> and share it. <b>Players:</b> paste a code below and <b>Load</b> &mdash; it is saved with your character so anyone can see it.</p>'+
+    '<input id="campName" placeholder="Campaign name &mdash; e.g. DragonLance: John&#39;s campaign" value="'+String(cur.n||'').replace(/"/g,'&quot;')+'" style="width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink);margin-bottom:8px">'+
+    '<details open><summary style="cursor:pointer;font-weight:700;font-size:12px;color:var(--teal)">Boons to bar ('+boons.length+')</summary><div style="display:flex;flex-wrap:wrap;gap:1px 4px;margin:4px 0">'+_campRows('boons',boons,cur.boons||[])+'</div></details>'+
+    '<details><summary style="cursor:pointer;font-weight:700;font-size:12px;color:var(--teal)">Drawbacks to bar ('+draws.length+')</summary><div style="display:flex;flex-wrap:wrap;gap:1px 4px;margin:4px 0">'+_campRows('draws',draws,cur.draws||[])+'</div></details>'+
+    '<details><summary style="cursor:pointer;font-weight:700;font-size:12px;color:var(--teal)">Arts &amp; Techniques to bar ('+arts.length+')</summary><div style="display:flex;flex-wrap:wrap;gap:1px 4px;margin:4px 0">'+_campRows('arts',arts,cur.arts||[])+'</div></details>'+
+    '<div style="margin:10px 0 4px;text-align:right"><button class="btn" onclick="genCampaignCode()">&#x2699; Generate code</button></div>'+
+    '<textarea id="campCode" placeholder="Generated code appears here, or paste a PACTRULES code to load" style="width:100%;box-sizing:border-box;height:54px;font-family:monospace;font-size:10px;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--inp);color:var(--ink)"></textarea>'+
+    '<div style="margin-top:8px;text-align:right"><button class="btn g" onclick="closeCampaign()">Close</button> <button class="btn" onclick="applyCampaignCode()">&#x2B07; Load these rules</button></div>'+
+    (cur.n?('<div style="margin-top:8px;font-size:11px;color:var(--good)">Loaded: <b>'+String(cur.n).replace(/</g,'&lt;')+'</b> &mdash; '+nbar+' barred</div>'):'')+
+    '</div>';
+  ov.style.display='flex';
+}
+function _campCollect(){var camp={n:(document.getElementById('campName').value||'').trim(),boons:[],draws:[],arts:[]};document.querySelectorAll('#campOv .campck').forEach(function(c){if(c.checked)camp[c.dataset.kind].push(c.dataset.name);});return camp;}
+function genCampaignCode(){var camp=_campCollect();if(!camp.n){flash('Give the campaign a name first.');return;}document.getElementById('campCode').value=_campEnc(camp);flash('Code generated — copy it and share it with your players.');}
+function applyCampaignCode(){var raw=(document.getElementById('campCode').value||'').trim();var camp=raw?_campDec(raw):_campCollect();if(raw&&!camp){flash('That is not a valid PACTRULES code.');return;}if(!camp.n){flash('Name the campaign (or paste a valid code) first.');return;}emit({type:'buy',cat:'campaign',payload:{v:camp},cost:0,label:'Campaign rules — '+camp.n});closeCampaign();flash('Campaign “'+camp.n+'” loaded — '+((camp.boons||[]).length+(camp.draws||[]).length+(camp.arts||[]).length)+' items barred. Saved with this character.');}
+
+function toggleMore(e){if(e)e.stopPropagation();var m=document.getElementById('moremenu');if(m)m.classList.toggle('open');}
+function closeMore(){var m=document.getElementById('moremenu');if(m)m.classList.remove('open');}
+function toggleDM(){var c=document.getElementById('dmcontent'),t=document.getElementById('dmtoggle');if(!c)return;var op=(c.style.display==='none');c.style.display=op?'inline':'none';if(t)t.textContent='🛠 DM tools '+(op?'▾':'▸');}
+function closeNames(){var ov=document.getElementById('namesOv');if(ov)ov.style.display='none';}
+function buyManeuver(){var b=foldBuild(null);emit({type:'buy',cat:'mvbuy',payload:{},cost:4+(b.maneuverBuys||0),label:'Extra Battle Master maneuver'});closeNames();openNames();}
+function saveNames(){var dab=[],inn=[[],[],[],[],[],[],[],[],[]],feat={},trMap={},lang=[],fs=[],fsc={},mm=[],mv=[],grants={},eb={},GR=_ownedGrants(foldBuild(null));
+  document.querySelectorAll('#namesBox .nmf').forEach(function(e){var p=e.dataset.k.split('::'),v=e.value;
+    if(p[0]==='grant'){var _gk=GR[+p[1]]&&GR[+p[1]].key;if(_gk){(grants[_gk]=grants[_gk]||[])[+p[2]]=v;}}
+    else if(p[0]==='lang')lang[+p[1]]=v;else if(p[0]==='feat')feat[p[1]]=v;else if(p[0]==='dab')dab[+p[1]]=v;else if(p[0]==='fs')fs[+p[1]]=v;else if(p[0]==='fsc'){(fsc[p[1]]=fsc[p[1]]||[])[+p[2]]=v;}else if(p[0]==='mm')mm[+p[1]]=v;else if(p[0]==='mv')mv[+p[1]]=v;else if(p[0]==='eb'){if(v)eb[p[1]]=v;}else if(p[0]==='inn')inn[+p[1]-1][+p[2]]=v;
+    else if(p[0]==='tr'){var ti=+p[1],di=+p[2],kk=ti+'_'+di;trMap[kk]=trMap[kk]||{ti:ti,di:di,cn:[],an:[[],[],[],[]],kn:[[],[],[],[],[],[],[],[],[]]};if(p[3]==='c')trMap[kk].cn[+p[4]]=v;else if(p[3]==='a')trMap[kk].an[+p[4]][+p[5]]=v;else{var _sL=+p[4],_nL=_spellLevel(v)||_sL;if(v&&String(v).trim()&&_nL!==_sL){(trMap[kk].kn[_nL-1]=trMap[kk].kn[_nL-1]||[]).push(v);trMap[kk]._cv=trMap[kk]._cv||{};trMap[kk]._cv[_sL]=(trMap[kk]._cv[_sL]||0)-1;trMap[kk]._cv[_nL]=(trMap[kk]._cv[_nL]||0)+1;}else trMap[kk].kn[_sL-1][+p[5]]=v;}}});
+  var _dup=_swapDupes();if(_dup.length){flash('\u26D4 \u201C'+_dup[0]+'\u201D is already in that spell list \u2014 no duplicates within a discipline. Pick a different spell.');return;}
+  var _st=_swapTally();if(_st.illegal){flash('\u26D4 Too many free-only swaps (cantrip/arcanum/style) for your free Hit-Die swaps this level.');return;}if(_st.paid>0&&_st.paid>_st.avail){flash('\u26D4 These swaps cost '+_st.paid+' AP but you have '+_st.avail+' available.');return;}var _curB=foldBuild(null);Object.keys(trMap).forEach(function(kk){var tm=trMap[kk];if(!tm._cv)return;Object.keys(tm._cv).forEach(function(Lk){var L=+Lk;tm.kn[L-1]=(tm.kn[L-1]||[]).filter(function(x){return x!==undefined;});});var _dd=(((_curB.traditions||[])[tm.ti]||{}).disciplines||[])[tm.di];var _kc=(_dd&&_dd.known)||[];Object.keys(tm._cv).forEach(function(Lk){var L=+Lk;emit({type:'known',ti:tm.ti,di:tm.di,L:L,to:Math.max(0,(_kc[L-1]||0)+tm._cv[Lk])});});delete tm._cv;});var _shd=(foldBuild(null).hd)||0;emit({type:'names',dab:dab,inn:inn,feat:feat,lang:lang,grants:grants,tr:Object.keys(trMap).map(function(k){return trMap[k];}),label:'Named spells & languages'+(_st.paid>0?(' \u2014 '+_st.n+' paid swap'+(_st.n>1?'s':'')+' ('+_st.paid+' AP, no refund)'):''),swapHD:(_st.freeUsed>0?_shd:0),fs:fs,fsc:fsc,mm:mm,mv:mv,eb:eb,swapN:_st.freeUsed,cost:_st.paid});closeNames();flash('Spell & language names locked into the log.');}
+var _AK='DragonReachForgePACT';
+function _apHash(str){var h=5381>>>0;for(var i=0;i<str.length;i++){h=(((h*33)>>>0)^str.charCodeAt(i))>>>0;}return h.toString(36);}
+function _apEnc(o){var pl=JSON.stringify(o);var c=pl+'|'+_apHash(pl);var u=encodeURIComponent(c);var x='';for(var i=0;i<u.length;i++)x+=String.fromCharCode(u.charCodeAt(i)^_AK.charCodeAt(i%_AK.length));return 'PACTAP:'+btoa(x);}
+function _apDec(code){if(!code||code.indexOf('PACTAP:')!==0)return null;try{var x=atob(code.slice(7));var u='';for(var i=0;i<x.length;i++)u+=String.fromCharCode(x.charCodeAt(i)^_AK.charCodeAt(i%_AK.length));var c=decodeURIComponent(u);var p=c.lastIndexOf('|');if(p<0)return null;var pl=c.slice(0,p),sig=c.slice(p+1);if(_apHash(pl)!==sig)return {bad:true};return JSON.parse(pl);}catch(e){return null;}}
+function _grantId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function makeGrant(){var a=prompt('AP to grant?','5');if(a==null||a==='')return;if(isNaN(+a)){flash('Enter a number.');return;}var n=prompt('Note (what for?)','')||'';
+  var code=_apEnc({a:+a,n:n,d:new Date().toISOString().slice(0,10),id:_grantId()});
+  try{if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(code);flash('AP grant code copied — send it to the party.');return;}}catch(e){}
+  window.prompt('Copy this AP grant code and send it to the party:',code);}
+function redeemGrant(){var code=prompt('Paste the AP grant code from your DM:','');if(!code)return;var o=_apDec(code.trim());
+  if(!o){flash('That is not a valid AP grant code.');return;}
+  if(o.bad){flash('This grant code looks altered — ask your DM for a fresh one.');return;}
+  if(!(+o.a)){flash('Invalid grant code.');return;}
+  if(o.id&&LOG.some(function(e){return e.grantId===o.id;})){flash('This grant code was already redeemed on this sheet.');return;}var _nt=(o.n||'AP grant')+(o.d?' [granted '+o.d+']':'');emit({type:'award',amount:+o.a,note:o.n||'',label:_nt,grantId:o.id||''});flash('Redeemed '+(+o.a)+' AP.');}
+function showInfo(){document.getElementById('infoModal').classList.add('open');}
+function closeInfo(){document.getElementById('infoModal').classList.remove('open');}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeInfo();});document.addEventListener('click',function(e){var m=document.getElementById('moremenu');if(m&&m.classList.contains('open')&&m.parentNode&&!m.parentNode.contains(e.target))m.classList.remove('open');});
+</script><!-- ── info modal ── -->
+<div id="infoModal" onclick="if(event.target===this)closeInfo()">
+<div id="infoBox">
+  <button class="close-btn" onclick="closeInfo()">&#x2715;</button>
+  <h2>&#x2139;&#xFE0F; PACT Live Character Sheet &mdash; Tool Guide</h2>
+  <h3>What this tool does</h3>
+  <p>This is the <strong>player tool</strong>. It tracks your character through actual play using an <em>event-sourced</em> log &mdash; every AP award and purchase is recorded in order, so you have a full history and can undo/redo any step. Prices are frozen at the moment of purchase: rules updates never change what you already paid.</p>
+  <h3>Getting a character in</h3>
+  <ul>
+    <li>Build your character in the <strong>PACT Character Generator</strong>, then click <strong>&#x21C6; Live Sheet</strong> to download a <code>-livesheet.json</code> file.</li>
+    <li>Click <span class="tag">&#x2B06; Import</span> here to load that file. Your full purchase history is reconstructed from it.</li>
+    <li>Alternatively, start fresh &mdash; the sheet seeds a blank level-1 character automatically.</li>
+  </ul>
+  <h3>During play</h3>
+  <ul>
+    <li>Use <strong>DM tools &rarr; + Award AP</strong> to add points after each session.</li>
+    <li>Buy new features from the Buy / Progress panel &mdash; each purchase is appended to the log.</li>
+    <li><span class="tag">&#x21B6; Undo</span> / <span class="tag">&#x21B7; Redo</span> step through your history. The time-travel slider lets you view any past state without changing it.</li>
+  </ul>
+  <h3>Saving &amp; sharing</h3>
+  <ul>
+    <li>The sheet auto-saves to your browser&apos;s local storage after every action.</li>
+    <li><span class="tag">&#x2B07; Export</span> downloads a portable <code>.json</code> backup you can move between devices or share with your DM.</li>
+    <li><span class="tag">&#x1F4CB; Sheet</span> shows a printable character sheet; <span class="tag">&#x1F4C4; A4 Sheet</span> opens a print-ready page.</li>
+  </ul>
+  <h3>Version notes</h3>
+  <p>If you import a file built under an older rules version, the sheet warns you and keeps those prices frozen &mdash; future purchases use the current price list.</p>
+  <p style="margin-top:12px;font-size:11.5px;color:var(--grey,#666)">PACT v0.309 &middot; 2024 D&amp;D &middot; DragonReach Forge</p>
+</div></div>
+</body></html>

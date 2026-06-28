@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PACT — DM Console</title>
+<style>
+  :root{
+    --navy:#1F3864; --navy2:#16294a; --blue:#2E5496; --blue-lt:#3f6bbf;
+    --light:#DEE7F4; --paper:#f4f7fc; --card:#ffffff;
+    --ink:#15233f; --muted:#5d6b85; --line:#cdd9ee;
+    --good:#1f8a4c; --good-bg:#e4f5ea; --zero:#7a869b; --zero-bg:#eef1f6;
+    --bad:#c0392b; --bad-bg:#fbe7e4; --warn:#b8860b; --warn-bg:#fbf2d8;
+    --shadow:0 1px 3px rgba(20,40,80,.12),0 6px 18px rgba(20,40,80,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--paper); color:var(--ink); line-height:1.45; -webkit-text-size-adjust:100%;
+  }
+  a{color:var(--blue)}
+
+  /* ---------- Top bar ---------- */
+  header.topbar{
+    background:linear-gradient(160deg,var(--navy) 0%,var(--blue) 140%);
+    color:#fff; padding:16px clamp(12px,3vw,28px); box-shadow:var(--shadow);
+    position:sticky; top:0; z-index:20;
+  }
+  .topbar h1{margin:0; font-size:clamp(18px,2.4vw,24px); letter-spacing:.3px; font-weight:700; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .topbar h1 .dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--light);box-shadow:0 0 0 3px rgba(222,231,244,.25)}
+  .summary{margin-top:6px; font-size:14px; color:var(--light); opacity:.95}
+  .summary b{color:#fff}
+
+  .toolrow{display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; align-items:stretch}
+  .panel{
+    background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.22);
+    border-radius:12px; padding:10px 12px; backdrop-filter:blur(2px);
+  }
+  .panel .ptitle{font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--light); margin-bottom:7px; font-weight:700; opacity:.9}
+  .btn{
+    appearance:none; border:0; cursor:pointer; font:inherit; font-weight:600;
+    min-height:40px; padding:0 16px; border-radius:9px; background:var(--light); color:var(--navy);
+    transition:transform .05s ease, filter .15s ease; display:inline-flex; align-items:center; gap:7px; justify-content:center;
+  }
+  .btn:hover{filter:brightness(1.04)} .btn:active{transform:translateY(1px)}
+  .btn.ghost{background:rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.35)}
+  .btn.sm{min-height:34px; padding:0 11px; font-size:13px}
+  .btn.danger{background:var(--bad-bg); color:var(--bad)}
+  .field{
+    min-height:40px; border-radius:9px; border:1px solid rgba(255,255,255,.4);
+    background:rgba(255,255,255,.96); color:var(--ink); padding:0 11px; font:inherit; width:100%;
+  }
+  .field.ro{background:#eaf0fb; color:var(--navy); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px}
+  label.lbl{display:block;font-size:11px;color:var(--light);margin-bottom:3px}
+
+  /* import panel */
+  #importPanel{flex:1 1 320px; min-width:260px}
+  #grantPanel{flex:1 1 320px; min-width:260px}
+  .grantgrid{display:grid; grid-template-columns:90px 1fr auto; gap:8px; align-items:end}
+  .grantgrid .full{grid-column:1 / -1}
+  .grantnote{font-size:11px;color:var(--light);margin-top:7px;opacity:.85}
+  .codeRow{display:flex; gap:8px; margin-top:8px}
+  .codeRow .field.ro{flex:1}
+  .hiddenFile{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+
+  /* ---------- main ---------- */
+  main{padding:clamp(12px,2.5vw,26px); max-width:1880px; margin:0 auto}
+
+  /* dropzone */
+  #drop{
+    border:2px dashed var(--line); border-radius:14px; background:var(--card);
+    padding:26px 18px; text-align:center; color:var(--muted); transition:.15s; margin-bottom:18px;
+  }
+  #drop.drag{border-color:var(--blue); background:#eef4ff; color:var(--navy); transform:scale(1.005)}
+  #drop .big{font-size:16px; font-weight:600; color:var(--navy); margin-bottom:4px}
+  #drop .sub{font-size:13px}
+  #drop .inline-import{margin-top:12px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+
+  /* error chips */
+  #errs{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px}
+  .errchip{
+    background:var(--bad-bg); color:var(--bad); border:1px solid #f0c4bd;
+    border-radius:20px; padding:6px 12px; font-size:12.5px; display:flex; align-items:center; gap:8px; font-weight:600;
+  }
+  .errchip button{background:none;border:0;color:var(--bad);cursor:pointer;font-size:15px;line-height:1;padding:0;opacity:.7}
+  .errchip button:hover{opacity:1}
+
+  /* empty state */
+  #empty{text-align:center; padding:46px 16px; color:var(--muted)}
+  #empty .emoji{font-size:42px; opacity:.5}
+  #empty .t{font-size:18px; font-weight:600; color:var(--navy); margin-top:8px}
+  #empty .s{font-size:14px; margin-top:4px}
+
+  /* ---------- card grid ---------- */
+  #grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column;
+  }
+  .card .chead{padding:14px 16px 12px; border-bottom:1px solid var(--line); position:relative}
+  .card .cname{font-size:20px; font-weight:700; color:var(--navy); line-height:1.2; padding-right:42px; word-break:break-word}
+  .card .csub{font-size:13px; color:var(--muted); margin-top:3px}
+  .card .csub .tier{display:inline-block;background:var(--light);color:var(--navy);border-radius:6px;padding:1px 7px;font-weight:600;font-size:12px;margin-left:2px}
+  .rmcard{
+    position:absolute; top:12px; right:12px; width:28px; height:28px; border-radius:7px;
+    border:1px solid var(--line); background:#fff; color:var(--muted); cursor:pointer; font-size:16px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .rmcard:hover{background:var(--bad-bg); color:var(--bad); border-color:#f0c4bd}
+  .warnbadge{
+    display:inline-flex; align-items:center; gap:5px; margin-top:8px;
+    background:var(--warn-bg); color:var(--warn); border:1px solid #ecd99a;
+    border-radius:18px; padding:3px 10px; font-size:12px; font-weight:600;
+  }
+
+  /* stat strip */
+  .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line)}
+  .stat{background:#fafcff; padding:9px 6px; text-align:center}
+  .stat .k{font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:700}
+  .stat .v{font-size:17px; font-weight:700; color:var(--ink); margin-top:1px}
+
+  /* AP panel */
+  .ap{display:grid; grid-template-columns:1fr 1fr 1.2fr; gap:1px; background:var(--line); border-top:1px solid var(--line)}
+  .ap .cell{background:#fff; padding:11px 6px; text-align:center}
+  .ap .cell .k{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
+  .ap .cell .v{font-size:18px;font-weight:700;margin-top:2px}
+  .ap .avail{position:relative}
+  .ap .avail .v{font-size:22px}
+  .ap .avail.pos{background:var(--good-bg)} .ap .avail.pos .v{color:var(--good)}
+  .ap .avail.zero{background:var(--zero-bg)} .ap .avail.zero .v{color:var(--zero)}
+  .ap .avail.neg{background:var(--bad-bg)} .ap .avail.neg .v{color:var(--bad)}
+
+  /* award history */
+  .awtoggle{
+    border-top:1px solid var(--line); padding:11px 16px; cursor:pointer; user-select:none;
+    display:flex; align-items:center; justify-content:space-between; font-size:13px; font-weight:600; color:var(--blue);
+    min-height:44px;
+  }
+  .awtoggle:hover{background:#f6f9ff}
+  .awtoggle .chev{transition:transform .18s ease}
+  .card.open .awtoggle .chev{transform:rotate(90deg)}
+  .awbody{display:none; padding:4px 16px 14px; border-top:1px solid var(--line); background:#fbfcfe}
+  .card.open .awbody{display:block}
+  .awrow{display:flex; align-items:baseline; gap:9px; padding:7px 0; border-bottom:1px dashed var(--line)}
+  .awrow:last-child{border-bottom:0}
+  .awrow .amt{font-weight:700; color:var(--good); min-width:46px; font-variant-numeric:tabular-nums}
+  .awrow.disc .amt{color:var(--blue)}
+  .awrow .lab{flex:1; font-size:13px}
+  .awrow .disctag{font-size:10px;background:#e7eefc;color:var(--blue);border-radius:5px;padding:1px 6px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  .awrow .dt{font-size:11.5px; color:var(--muted); white-space:nowrap}
+  .awnone{color:var(--muted); font-size:13px; padding:10px 0}
+  .footnote{font-size:11px;color:var(--muted);text-align:center;margin-top:24px;padding-bottom:8px}
+
+  /* ---------- v0.194 extra stats (resources, casting, traits, warnings) ---------- */
+  .xtra{border-top:1px solid var(--line); padding:11px 16px; display:flex; flex-direction:column; gap:9px; background:#fbfcfe}
+  .xtra .xrow{display:flex; flex-wrap:wrap; gap:6px; align-items:center}
+  .xtra .xlabel{font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:700; margin-right:2px}
+  .chip{display:inline-flex; align-items:center; gap:4px; border-radius:20px; padding:2px 9px; font-size:12px; font-weight:600; background:var(--light); color:var(--navy); border:1px solid var(--line); white-space:nowrap}
+  .chip.res{background:#eef4ff; color:var(--blue); border-color:#cdddf6}
+  .chip.good{background:var(--good-bg); color:var(--good); border-color:#bfe6cd}
+  .chip.bad{background:var(--bad-bg); color:var(--bad); border-color:#f0c4bd}
+  .chip.lin{background:#efeafb; color:#4b3b9a; border-color:#d8cdf2}
+  .xtra .cast{display:flex; flex-direction:column; gap:4px; width:100%}
+  .xtra .castrow{font-size:12px; display:flex; flex-wrap:wrap; gap:5px; align-items:baseline}
+  .xtra .castrow .ct{font-weight:700; color:var(--navy)}
+  .xtra .castrow .cmeta{color:var(--muted)}
+  .xtra .castrow .prep{font-size:10px; background:var(--good-bg); color:var(--good); border-radius:5px; padding:0 5px; font-weight:700; text-transform:uppercase; letter-spacing:.3px}
+  .xtra .warnlist{display:flex; flex-direction:column; gap:4px; width:100%}
+  .xtra .warnitem{font-size:12px; color:var(--warn); background:var(--warn-bg); border:1px solid #ecd99a; border-radius:7px; padding:5px 9px}
+
+  @media (max-width:520px){
+    #grid{grid-template-columns:1fr}
+    .grantgrid{grid-template-columns:1fr 1fr; }
+    .grantgrid .gen{grid-column:1 / -1}
+    .topbar h1{font-size:19px}
+  }
+  /* per-card expandable sections (UI add) */
+  .sec{border-top:1px solid var(--line)}
+  .secrow{display:flex; justify-content:space-between; align-items:center; cursor:pointer; padding:8px 14px; font-size:12.5px; font-weight:700; color:var(--navy); user-select:none}
+  .secrow:hover{background:#f2f6fc}
+  .sec .chev{transition:transform .15s; color:var(--blue); font-size:11px}
+  .sec.open .chev{transform:rotate(90deg)}
+  .secbody{display:none; padding:2px 14px 12px}
+  .sec.open .secbody{display:block}
+  .cg{display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin:5px 0}
+  .cglabel{font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:700; margin-right:3px}
+  .castline{font-size:12.5px; color:var(--ink); margin:3px 0}
+  .warnicon{display:inline-block; background:var(--bad-bg,#fde8e4); color:var(--bad,#b3261e); border:1px solid #f0c4bd; border-radius:10px; padding:0 7px; font-size:11px; font-weight:700; cursor:help; vertical-align:middle; margin-left:6px}
+  .kvs{margin:4px 0}
+  .kvrow{display:flex; justify-content:space-between; font-size:12.5px; padding:3px 0; border-bottom:1px dotted var(--line)}
+  .kvrow .kk{color:var(--muted)} .kvrow .vv{font-weight:700; color:var(--navy)}
+  .bottomctl{margin-top:20px; display:flex; gap:14px; flex-wrap:wrap}
+  .bottomctl .panel{flex:1 1 280px}
+  /* ---- skill overlays + party matrix (UI add) ---- */
+  .topactions{margin-top:10px;}
+  .topbtn{appearance:none;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.14);color:#fff;border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+  .topbtn:hover{background:rgba(255,255,255,.26);}
+  #viewToggle{min-width:7.6em;text-align:center;}
+  .cardactions{margin-top:9px;}
+  .detail-actions{margin:2px 0 10px;}
+  .skbtn{appearance:none;border:1px solid #c3d0e6;background:#fff;color:#1F3864;border-radius:7px;padding:4px 10px;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;}
+  .skbtn:hover{background:#eef3fb;}
+  .ov{position:fixed;inset:0;background:rgba(18,28,52,.55);display:none;align-items:flex-start;justify-content:center;z-index:120;padding:24px 12px;overflow:auto;}
+  .ov.on{display:flex;}
+  .ov-card{background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(15,25,50,.35);max-width:940px;width:100%;padding:18px 18px 22px;position:relative;}
+  .ov-x{position:absolute;top:12px;right:12px;width:34px;height:34px;border:0;border-radius:9px;background:#eef2fb;color:#1F3864;font-size:16px;font-weight:800;cursor:pointer;}
+  .ov-x:hover{background:#e1e8f7;}
+  .ov-h{margin:2px 36px 2px 0;font-size:18px;color:#1F3864;}
+  .ov-sub{font-size:12px;color:#5d6b85;margin:4px 0 14px;}
+  .sktab{width:100%;border-collapse:collapse;font-size:13.5px;}
+  .sktab th,.sktab td{padding:6px 10px;border-bottom:1px solid #e7eefb;text-align:left;}
+  .sktab th.num,.sktab td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;}
+  .sktab tr.prof td{background:#eef4ff;}
+  .sktab tr.exp td{background:#e4f5ea;}
+  .sktab .pdot{color:#2E5496;margin-right:6px;}
+  .mtx-scroll{overflow:auto;max-height:70vh;border:1px solid #e7eefb;border-radius:10px;}
+  .mtx{border-collapse:collapse;font-size:12.5px;white-space:nowrap;}
+  .mtx th,.mtx td{border:1px solid #e7eefb;padding:5px 9px;text-align:center;font-variant-numeric:tabular-nums;}
+  .mtx thead th{position:sticky;top:0;background:#1F3864;color:#fff;z-index:2;}
+  .mtx td.rowh,.mtx th.rowh{position:sticky;left:0;background:#f6f9ff;text-align:left;font-weight:700;color:#1F3864;z-index:1;}
+  .mtx thead th.rowh{z-index:3;background:#16294a;}
+  .mtx .abil{font-size:10px;color:#8a96ad;font-weight:600;}
+  .mtx td.prof{background:#eef4ff;font-weight:700;color:#1F3864;}
+  .mtx td.exp{background:#e4f5ea;font-weight:700;color:#1f8a4c;}
+  .mtx td.muted{color:#c2cbdc;}
+  .mtx tr.div td{background:#eaf0fb;font-weight:800;color:#1F3864;text-align:left;letter-spacing:.3px;text-transform:uppercase;font-size:10.5px;}
+  .castslots{margin:2px 0 9px;display:flex;flex-wrap:wrap;gap:4px;}
+  .slotpill{display:inline-block;background:#eef4ff;color:#2E5496;border:1px solid #cdddf6;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;}
+  .ac2sep{opacity:.45;font-weight:400;}
+  .ac2-in{width:40px;font:inherit;font-size:13px;font-weight:700;text-align:center;border:1px solid #cdd9ee;border-radius:6px;padding:1px 2px;color:#1F3864;background:#fffdf2;vertical-align:baseline;}
+  .ac2-in::-webkit-outer-spin-button,.ac2-in::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .ac2-in{-moz-appearance:textfield;}
+  .chip.prof{background:#eef4ff;color:#2E5496;border-color:#cdddf6;}
+  /* ===== merged Table view — scoped under #tableRoot (from the DataTable console) ===== */
+  #tableRoot{ --navy:#1F3864; --blue:#2E5496; --light:#DEE7F4; --ink:#16233b; --muted:#5a6b86; --line:#c7d4ea; --green:#1c7c43; --red:#b5253a; --grey:#7a8499; --zebra:#f3f6fc; --warn:#b8860b; color:var(--ink); background:#eef2fa; border-radius:12px; padding:6px 12px 12px; margin-top:4px; }
+  #tableRoot .tablecard{ background:#fff;border:1px solid var(--line);border-radius:12px;margin-top:10px;box-shadow:0 1px 4px rgba(31,56,100,.06);overflow:hidden; }
+  #tableRoot .scroll{ overflow:auto;max-height:70vh; }
+  #tableRoot table{ border-collapse:separate;border-spacing:0;width:100%;font-size:14px; }
+  #tableRoot thead th{ position:sticky;top:0;z-index:3;background:var(--navy);color:#fff;text-align:left;padding:10px 12px;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:2px solid var(--blue); }
+  #tableRoot thead th .arrow{ opacity:.55;font-size:11px;margin-left:3px; }
+  #tableRoot thead th.active{ background:var(--blue); }
+  #tableRoot thead th.active .arrow{ opacity:1; }
+  #tableRoot thead th.num,#tableRoot tbody td.num{ text-align:right; }
+  #tableRoot thead th.ctr,#tableRoot tbody td.ctr{ text-align:center; }
+  #tableRoot tbody td{ padding:9px 12px;border-bottom:1px solid #e9eef8;white-space:nowrap;color:var(--ink); }
+  #tableRoot tbody tr.data{ cursor:pointer; }
+  #tableRoot tbody tr.data:nth-child(4n+1){ background:var(--zebra); }
+  #tableRoot tbody tr.data:hover{ background:#e9f0fc; }
+  #tableRoot tbody tr.data.sel{ background:#dde9fc; }
+  #tableRoot td.name{ font-weight:600;color:var(--navy);position:sticky;left:0;background:inherit;z-index:1; }
+  #tableRoot tbody tr.data:nth-child(4n+1) td.name{ background:var(--zebra); }
+  #tableRoot tbody tr.data:hover td.name{ background:#e9f0fc; }
+  #tableRoot tbody tr.data.sel td.name{ background:#dde9fc; }
+  #tableRoot .avail-pos{ color:var(--green);font-weight:700; }
+  #tableRoot .avail-zero{ color:var(--grey);font-weight:600; }
+  #tableRoot .avail-neg{ color:var(--red);font-weight:700; }
+  #tableRoot .flag{ color:var(--warn);font-weight:700; }
+  #tableRoot .flag-none{ color:var(--grey); }
+  #tableRoot tr.detail td{ background:#f7faff;border-bottom:2px solid var(--line);padding:0; }
+  #tableRoot .detail-inner{ padding:14px 16px; }
+  #tableRoot .detail-grid{ display:flex;flex-wrap:wrap;gap:18px; }
+  #tableRoot .detail-col{ flex:1 1 300px;min-width:0; }
+  #tableRoot .detail-col h3{ margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--blue); }
+  #tableRoot .detail-actions{ margin:2px 0 10px; }
+  #tableRoot table.awards{ font-size:13px;width:100%; }
+  #tableRoot table.awards th{ position:static;background:var(--light);color:var(--navy);border-bottom:1px solid var(--line);padding:6px 8px;cursor:default;text-align:left; }
+  #tableRoot table.awards td{ white-space:normal;padding:6px 8px;border-bottom:1px solid #eef2fa; }
+  #tableRoot table.awards td.amt{ text-align:right;font-weight:700;color:var(--green);white-space:nowrap; }
+  #tableRoot .badge{ display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--light);color:var(--navy);margin-left:6px;vertical-align:middle; }
+  #tableRoot .flaglist{ margin:0;padding-left:18px;font-size:13px; }
+  #tableRoot .flaglist li{ margin:3px 0; }
+  #tableRoot .flaglist li.warn{ color:var(--warn); }
+  #tableRoot .flaglist li.none{ color:var(--grey);list-style:none;margin-left:-18px; }
+  #tableRoot .none{ color:var(--grey); }
+  #tableRoot .meta{ font-size:12px;color:var(--muted);margin-top:4px; }
+  #tableRoot .cards{ display:none;margin-top:14px; }
+  #tableRoot .ccard{ background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:12px;box-shadow:0 1px 4px rgba(31,56,100,.06);overflow:hidden; }
+  #tableRoot .ccard .chead{ display:flex;justify-content:space-between;align-items:center;gap:8px;padding:13px 14px;cursor:pointer;min-height:48px;background:linear-gradient(180deg,#fff,#f6f9ff); }
+  #tableRoot .ccard .chead .nm{ font-weight:700;color:var(--navy);font-size:16px; }
+  #tableRoot .ccard .chead .sub{ font-size:12px;color:var(--muted); }
+  #tableRoot .ccard .chead .chev{ color:var(--blue);font-weight:700;font-size:18px; }
+  #tableRoot .ccard .cbody{ padding:4px 14px 14px;border-top:1px solid #eef2fa; }
+  #tableRoot .kv{ display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #f0f4fb;font-size:14px; }
+  #tableRoot .kv:last-child{ border-bottom:none; }
+  #tableRoot .kv .k{ color:var(--muted); }
+  #tableRoot .kv .v{ font-weight:600;text-align:right; }
+  #tableRoot .tbtoolbar{ display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);position:relative; }
+  #tableRoot .colbtn{ background:#fff;border:1px solid var(--line);border-radius:7px;padding:5px 11px;font:inherit;font-size:12.5px;cursor:pointer;color:var(--navy);font-weight:700; }
+  #tableRoot .colbtn:hover{ background:#eef3fb; }
+  #tableRoot .colpanel{ position:absolute;top:calc(100% - 2px);right:10px;z-index:30;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 8px 24px rgba(20,40,80,.18);padding:8px 6px;min-width:170px;display:none;max-height:min(60vh,360px);overflow-y:auto;overscroll-behavior:contain; }
+  #tableRoot .colpanel.open{ display:block; }
+  #tableRoot .colpanel label{ display:flex;align-items:center;gap:7px;padding:4px 9px;font-size:12.5px;border-radius:6px;cursor:pointer;white-space:nowrap;color:var(--ink); }
+  #tableRoot .colpanel label:hover{ background:#eef3fb; }
+  #tableRoot .colpanel label.locked{ opacity:.55;cursor:not-allowed; }
+  #tableRoot .colpanel input{ margin:0; }
+  #tableRoot th.exq,#tableRoot td.exq{ width:26px;text-align:center;padding-left:6px;padding-right:0; }
+  #tableRoot .exq-chev{ display:inline-block;transition:transform .15s;color:var(--blue);font-size:11px; }
+  #tableRoot tr.data.sel .exq-chev{ transform:rotate(90deg); }
+  #tableRoot .save-prof{ font-weight:800;color:var(--navy); }
+  @media (max-width:700px){ #tableRoot .scroll{ display:none; } #tableRoot .tablecard{ display:none; } #tableRoot .cards{ display:block; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <h1><span class="dot"></span>PACT — DM Console</h1>
+  <div class="summary" id="summary">No characters imported yet.</div>
+  <div class="topactions"><button type="button" class="topbtn" id="viewToggle">▦ Table view</button><button type="button" class="topbtn" id="matrixBtn">📊 Skill Matrix</button><button type="button" class="topbtn" id="ledgerBtn">📒 AP Ledger</button></div>
+</header>
+
+<main>
+
+  <div id="errs"></div>
+
+  <div id="empty">
+    <div class="emoji">🛡️</div>
+    <div class="t">Drop your players' exported .json files here</div>
+    <div class="s">Imported characters appear as a card grid. Nothing is ever modified.</div>
+  </div>
+
+  <div id="grid"></div>
+
+  <div id="tableRoot" style="display:none">
+    <div class="tablecard" id="tableCard">
+      <div class="tbtoolbar"><button class="colbtn" id="colBtn" type="button">⚙ Columns ▾</button><div class="colpanel" id="colPanel"></div></div>
+      <div class="scroll"><table id="rosterTable"><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </div>
+
+  <div class="bottomctl">
+    <div id="drop">
+      <div class="big">Drop your players' exported .json files here</div>
+      <div class="sub">Each player exports from the PACT Live Sheet (a <code>.json</code> of <code>{rules, name, LOG, SEQ}</code>). Drop one or many.</div>
+      <div class="inline-import">
+        <button type="button" class="btn sm" id="pickBtn2">Browse files…</button>
+      </div>
+    </div>
+    <div class="panel" id="importPanel">
+      <div class="ptitle">Import roster</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn" id="pickBtn">Choose .json files…</button>
+        <button type="button" class="btn danger sm" id="clearBtn" title="Remove all imported characters">Clear party</button>
+      </div>
+      <input class="hiddenFile" type="file" id="fileInput" multiple accept=".json,application/json">
+      <div class="grantnote">Read-only — this tool never edits a character. It only imports &amp; displays.</div>
+    </div>
+    <div class="panel" id="grantPanel">
+      <div class="ptitle">AP grant code</div>
+      <div class="grantgrid">
+        <div>
+          <label class="lbl" for="grantAmt">Amount</label>
+          <input class="field" type="number" id="grantAmt" value="10" step="1">
+        </div>
+        <div>
+          <label class="lbl" for="grantNote">Note (optional)</label>
+          <input class="field" type="text" id="grantNote" placeholder="e.g. cleared the crypt">
+        </div>
+        <div class="gen">
+          <label class="lbl">&nbsp;</label>
+          <button type="button" class="btn" id="genBtn">Generate code</button>
+        </div>
+      </div>
+      <div class="codeRow">
+        <input class="field ro" id="grantCode" readonly placeholder="PACTAP:… code appears here">
+        <button type="button" class="btn sm" id="copyBtn">Copy</button>
+      </div>
+      <div class="grantnote">One code works for the <b>whole party</b> — send it to every player to grant the same AP.</div>
+    </div>
+  </div>
+
+  <div class="footnote">PACT DM Console <span id="toolVer"></span> · read-only roster viewer · rules engine <span id="rulesVer"></span></div>
+</main>
+
+<script type="module">
+  // Single source of truth: load the shared rules engine and publish its API as
+  // globals so the (classic) DM-Console UI keeps working unchanged.
+  try {
+    const engine = await import("../js/engine.js");
+    window.__PACT = engine;
+    Object.assign(window, {
+      DATA: engine.DATA, compute: engine.compute,
+      rebuildStateFromEvents: engine.rebuildStateFromEvents,
+      baseBuild: engine.baseBuild, MUT: engine.MUT
+    });
+    window.__engineReady = true;
+    document.dispatchEvent(new Event('engine-ready'));
+  } catch (err) {
+    console.error("[PACT] Could not load js/engine.js — the console cannot run. " +
+      "Serve over http (Live Server), not file://, and check the path ../js/engine.js.", err);
+    document.dispatchEvent(new Event('engine-error'));
+  }
+</script>
+<script>
+
+
+
+function _mod(s){return Math.floor((s-10)/2);}
+function _abilName(a){return a;}
+
+// the character's AP-equivalent level: the highest level whose budget-table value is <= ap (0 = below level 1)
+function apLevel(ap){var lv=0;for(var L=1;L<=20;L++){if((DATA.levelAP[L]||1e9)<=(+ap||0))lv=L;}return lv;}
+
+
+const ABILS=["STR","DEX","CON","INT","WIS","CHA"];
+const sgn=x=>(x>=0?'+':'')+x;
+// ---------------- state: append-only event log ----------------
+let LOG=[];        // [{seq,ts,type,...}]
+let REDO=[];       // popped events for redo
+let SEQ=1;
+let __charId=null;                                   // stable per-character id for hand-typed sheet fields
+function currentCharId(){return __charId;}
+let viewAt=null;   // time-travel: render state as-of this many events (null = head)
+let RULES='';   // current rules version of this build of the tool
+let loadedRules=null;   // rules version stamped on a loaded file/localStorage; null until an older-version build is imported. Dormant while only the current version exists.
+
+   // the Live Sheet tracks an in-PLAY character: racial traits cost the higher Tier you've grown into (guide §10)
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+// mutators: apply a buy's effect to a build (immutably)
+
+
+function activeEvents(uptoIdx){ return __PACT.activeEvents(uptoIdx==null?LOG:LOG.slice(0,uptoIdx)); }  // delegates to engine.js
+function foldBuild(uptoIdx){ return __PACT.foldBuild(uptoIdx==null?LOG:LOG.slice(0,uptoIdx)); }  // delegates to engine.js
+function economy(uptoIdx){ return __PACT.economy(uptoIdx==null?LOG:LOG.slice(0,uptoIdx)); }  // delegates to engine.js
+
+/* ===== PACT DM Console adapter — read-only, operates on a passed-in export ===== */
+function dmAnalyze(exported){
+  LOG = (exported && exported.LOG) || [];
+  SEQ = (exported && exported.SEQ) || (LOG.length+1);
+  var b = foldBuild(null);
+  var eco = economy(null);
+  var r = compute(b);
+  // unnamed spell count (dabbler cantrips + innate spells; feats removed in v0.075)
+  var unnamed=0;
+  for(var i=0;i<(b.dabblerCantrips||0);i++){ if(!(((b.dabblerCantripNames||[])[i])||'').trim()) unnamed++; }
+  for(var L=1;L<=9;L++){ for(var j=0;j<(((b.innate||[])[L-1])||0);j++){ if(!((((b.innateNames||[])[L-1]||[])[j])||'').trim()) unnamed++; } }
+  var awards = LOG.filter(function(e){return e.type==='award';}).map(function(e){return {amount:e.amount, label:e.label||'', disc:!!e.disc, ts:e.ts||0};});
+  // spellcasting traditions/disciplines summary (names + DC/atk per discipline)
+  var casting = [];
+  (r.discInfo||[]).forEach(function(di){ if(!di) return;
+    casting.push({trad:di.tradName||di.trad||'', disc:di.name||'', ab:di.castAb, dc:di.saveDC, atk:di.spellAtk, rank:di.rank, prepared:!!di.prepared}); });
+  return {
+    name: b.name||exported.name||'Unnamed Hero',
+    rules: exported.rules||'?',
+    species: b.species, species2: b.species2, lineage: b.lineage||'',
+    originClass: b.originClass, originClass2: b.originClass2,
+    unlockedClasses: (b.unlockedClasses||[]).slice(),
+    hd: b.hd, tier: r.tier, apLevel: (typeof apLevel==='function'?apLevel(eco.earned):null),
+    hp: r.hp, ac: r.ac, prof: r.prof, saveDC: r.hasDC?r.saveDC:null, spellAtk: r.hasDC?r.spellAtk:null,
+    castAb: r.hasDC?r.castAb:null, speed: r.speed, init: r.init, size: r.size,
+    mods: r.mods, conMod: r.conMod, goldGp: r.goldGp,
+    // ---- new v0.180 stats surfaced for the console UIs ----
+    vigor: b.hardy||0, vigorCap: r.hardyCap, grit: b.tough||0,
+    ki: b.ki||0, sorcery: b.sorcery||0, attune: b.attune||0, bastion: b.bastion||0,
+    martiallyBound: (b.martiallyBound && b.martiallyBound!=='(none)') ? b.martiallyBound : '',
+    racialTraits: (b.racialTraits||[]).slice(), racialSpells: (b.racialSpells||[]).slice(),
+    arts: (b.arts||[]).slice(), boons: (b.boons||[]).slice(),
+    drawbacks: (b.drawbacks||[]).slice(), features: (b.features||[]).slice(),
+    casting: casting,
+    // ---- economy + flags ----
+    earned: eco.earned, spent: eco.spent, available: eco.available,
+    purchases: LOG.filter(function(e){return e.type==='buy';}).length,
+    awards: awards, unnamed: unnamed,
+    warnings: (r.warnings||[]).length, warningList: (r.warnings||[]).slice(),
+    total: r.total, budget: r.budget, lines: r.lines||[], itemize: r.itemize||{}
+  };
+}
+/* ===== AP grant-code generator (party-wide, obfuscated + checksummed) ===== */
+var _AK='DragonReachForgePACT';
+function _apHash(str){var h=5381>>>0;for(var i=0;i<str.length;i++){h=(((h*33)>>>0)^str.charCodeAt(i))>>>0;}return h.toString(36);}
+function _apEnc(o){var pl=JSON.stringify(o);var c=pl+'|'+_apHash(pl);var u=encodeURIComponent(c);var x='';for(var i=0;i<u.length;i++)x+=String.fromCharCode(u.charCodeAt(i)^_AK.charCodeAt(i%_AK.length));return 'PACTAP:'+btoa(x);}
+function _grantId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function dmMakeGrant(amount,note){return _apEnc({a:+amount,n:note||'',d:new Date().toISOString().slice(0,10),id:_grantId()});}
+</script>
+
+<script>
+/* ============ PACT DM Console — UI layer (read-only) ============ */
+// Gated on the engine bridge: run the UI boot only once DATA/compute exist.
+function __dmStart(){
+RULES = DATA.version;                 // authoritative rules version from the shared engine
+DATA.racialFx={"Goliath: Long Stride (Speed 35)":"Walking speed becomes 35 ft (floor - does not stack with itself; Wood Elf gets this free via lineage).","Dwarf: Darkvision 60 ft":"See in the dark (60 ft).","Dwarf: Dwarven Resilience (poison)":"Advantage on saves vs poison; resistance to poison damage.","Dwarf: Unslowed by Heavy Armour":"No speed penalty from wearing heavy armour.","Elf: Darkvision 60 ft":"See in the dark (60 ft).","Elf: Fey Ancestry":"Advantage vs being charmed; can't be magically put to sleep.","Halfling: Move Through Larger Creatures":"Move through the space of any larger creature.","Gnome: Darkvision 60 ft":"See in the dark (60 ft).","Gnome: Gnomish Cunning (saves vs magic)":"Advantage on INT, WIS and CHA saves vs magic.","Orc: Darkvision 60 ft":"See in the dark (60 ft).","Orc: Relentless Endurance":"Drop to 1 HP instead of 0, once per long rest.","Orc: Adrenaline Rush":"Bonus-action Dash and gain temporary HP.","Dragonborn: Breath Weapon":"Exhale area damage of your draconic ancestry.","Dragonborn: Damage Resistance (ancestry)":"Resistance to your ancestry's damage type.","Tiefling: Darkvision 60 ft":"See in the dark (60 ft).","Tiefling: Damage Resistance (lineage)":"Resistance to your legacy's damage type.","Human: Heroic Inspiration":"Regain Heroic Inspiration (per the core rule).","Dwarf: Stonecunning":"Briefly gain tremorsense to sense through stone.","Dwarf: Tremorsense (tunnels)":"Sense vibrations through the ground in tunnels.","Elf: Trance":"Finish a long rest in 4 hours of trance.","Elf: Superior Darkvision (Drow)":"See twice as far in the dark (120 ft).","Elf: Mask of the Wild (Wood)":"Hide even when only lightly obscured by nature.","Elf: Fleet of Foot (Wood)":"+5 ft walking speed.","Halfling: Naturally Stealthy":"Hide while obscured by a larger creature.","Halfling: Brave (fear resist)":"Advantage on saves vs being frightened.","Halfling: Stout Resilience (poison)":"Advantage vs poison; resistance to poison damage.","Halfling: Halfling Nimbleness":"Move through the space of any larger creature.","Gnome: Speak with Small Beasts (Forest)":"Communicate simple ideas with small animals.","Gnome: Superior Darkvision (Deep)":"See twice as far in the dark (120 ft).","Orc: Savage Critical":"Roll an extra weapon damage die on a critical hit.","Orc: Powerful Build":"Count as one size larger for carrying capacity.","Orc: Aggressive":"Bonus-action move toward an enemy.","Dragonborn: Larger Breath Dice":"Your breath weapon's damage die climbs the chain.","Dragonborn: Draconic Flight":"Gain a temporary fly speed (at higher tiers).","Tiefling: Infernal Constitution":"Resistance to poison and cold; advantage vs poison."};                       // relocated from inline DATA literal (full racial-trait tooltips)
+(function(){
+  "use strict";
+  var LS_KEY = 'pactDMConsole_v1';
+  var TOOL_VERSION = 'v0.014';   // console build version — bump on each non-trivial change
+  var roster = [];   // [{id, fileName, summary, raw}]
+
+  // DM-set second AC — console-side annotation keyed by character name; never touches the sheet
+  var AC2_KEY='pactDM_ac2';
+  var ac2=(function(){ try{ var o=JSON.parse(localStorage.getItem(AC2_KEY)||'{}'); return (o&&typeof o==='object')?o:{}; }catch(e){ return {}; } })();
+  function saveAc2(){ try{ localStorage.setItem(AC2_KEY, JSON.stringify(ac2)); }catch(e){} }
+  function acCellHTML(ac, key){ var k=String(key||''); var val=(ac2[k]!=null?ac2[k]:'');
+    return (ac==null?'—':esc(ac))+' <span class="ac2sep">/</span> <input type="number" class="ac2-in" data-ac2key="'+esc(k)+'" value="'+esc(val)+'" placeholder="–" title="DM second AC" onclick="event.stopPropagation()">'; }
+  function passivePerc(s){ var pb=s.prof||0, wis=(s.mods&&s.mods.WIS)||0;
+    var isP=(s.skills||[]).indexOf('Perception')>=0, isE=(s.expertise||[]).indexOf('Perception')>=0;
+    return 10+wis+(isP?pb:0)+(isE?pb:0); }
+
+  var $ = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return String(s==null?'':s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
+
+  try{ if(typeof RULES!=='undefined') $('rulesVer').textContent = RULES; }catch(e){}
+  try{ var _tv=$('toolVer'); if(_tv) _tv.textContent = TOOL_VERSION; }catch(e){}
+
+  /* ---------- persistence ---------- */
+  function save(){
+    try{
+      var slim = roster.map(function(r){ return {id:r.id, fileName:r.fileName, raw:r.raw}; });
+      localStorage.setItem(LS_KEY, JSON.stringify(slim));
+    }catch(e){ /* storage may be unavailable on file:// in some browsers */ }
+  }
+  function load(){
+    var rec;
+    try{ rec = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); }catch(e){ rec=[]; }
+    if(!Array.isArray(rec)) return;
+    rec.forEach(function(r){
+      try{
+        var summary = analyzeAug(r.raw);
+        roster.push({id:r.id||uid(), fileName:r.fileName||'', summary:summary, raw:r.raw});
+      }catch(e){ /* skip corrupt stored entry */ }
+    });
+  }
+  function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+  /* ---------- error chips ---------- */
+  function showError(fileName, msg){
+    var wrap = $('errs');
+    var chip = document.createElement('div');
+    chip.className = 'errchip';
+    chip.innerHTML = '<span>⚠ '+esc(fileName)+' — '+esc(msg)+'</span>';
+    var x = document.createElement('button');
+    x.textContent = '×'; x.title='dismiss';
+    x.onclick = function(){ chip.remove(); };
+    chip.appendChild(x);
+    wrap.appendChild(chip);
+  }
+
+  /* ---------- import pipeline ---------- */
+  // analyze + surface the proficiency arrays the analyzer doesn't return (engine untouched)
+  function analyzeAug(raw){
+    var a = dmAnalyze(raw);
+    try{ var b = foldBuild(null);
+      a.skills=(b.skills||[]).slice(); a.tools=(b.tools||[]).slice(); a.instruments=(b.instruments||[]).slice();
+      a.expertise=(b.expertise||[]).slice(); a.saves=(b.saves||[]).slice(); a.masteries=(b.masteries||[]).slice();
+      a.languages=(b.languages||0);
+      a.weaponProf=b.weaponProf||{}; a.armour=b.armour||{};
+      a.toolExpertise=(b.toolExpertise||[]).slice();
+      // enrich each casting entry with per-level slot/known data from the raw build
+      var _flat=[];
+      (b.traditions||[]).forEach(function(t){ if(!t||!t.name||t.name==='(none)') return;
+        (t.disciplines||[]).forEach(function(d){ if(!d||!d.name||d.name==='(none)') return; _flat.push({t:t,d:d}); }); });
+      (a.casting||[]).forEach(function(c,i){ var fd=_flat[i]; if(!fd) return; var d=fd.d;
+        c.cantrips=d.cantrips||0; c.slots=(d.slots||[]).slice(); c.known=(d.known||[]).slice();
+        c.pactSlots=d.pactSlots||0; c.arcanum=(d.arcanum||[]).slice();
+        c.knownNames=d.knownNames||null; c.cantripNames=d.cantripNames||null;
+        c.knownTotal=(d.known||[]).reduce(function(s,n){return s+(+n||0);},0);
+        c.pactLevel=Math.min(5,(fd.t.rank||0)); });
+    }catch(e){}
+    return a;
+  }
+  function handleFiles(fileList){
+    var files = Array.prototype.slice.call(fileList||[]);
+    files.forEach(function(file){
+      var reader = new FileReader();
+      reader.onload = function(){
+        var raw;
+        try{ raw = JSON.parse(reader.result); }
+        catch(e){ showError(file.name, 'not valid JSON'); return; }
+        try{
+          var summary = analyzeAug(raw);
+          roster.push({id:uid(), fileName:file.name, summary:summary, raw:raw});
+          save(); render();
+        }catch(e){
+          showError(file.name, 'could not analyze ('+(e && e.message ? e.message : 'unknown')+')');
+        }
+      };
+      reader.onerror = function(){ showError(file.name, 'could not read file'); };
+      reader.readAsText(file);
+    });
+  }
+
+  function removeCard(id){
+    roster = roster.filter(function(r){ return r.id!==id; });
+    save(); render();
+  }
+  function clearParty(){
+    if(roster.length && !confirm('Remove all '+roster.length+' character'+(roster.length>1?'s':'')+' from the console?')) return;
+    roster = [];
+    try{ localStorage.removeItem(LS_KEY); }catch(e){}
+    render();
+  }
+
+  /* ---------- rendering ---------- */
+  function fmtClass(s){
+    var cls = s.originClass || '—';
+    if(s.originClass2 && s.originClass2!=='(none)') cls += ' / ' + s.originClass2;
+    return cls;
+  }
+  function speciesDisp(s){
+    var sp = s.species || '—';
+    if(s.species2 && s.species2!=='(none)') return 'Half-'+sp+' '+s.species2;
+    return sp;
+  }
+  // saving throws: bonus per ability = mod + (prof if that save is proficient)
+  function saveRows(s){
+    var ABL=['STR','DEX','CON','INT','WIS','CHA'];
+    var pb=s.prof||0, mods=s.mods||{}, P=s.saves||[];
+    return ABL.map(function(ab){ var isP=P.indexOf(ab)>=0; return {ab:ab, bonus:(mods[ab]||0)+(isP?pb:0), prof:isP}; });
+  }
+  function saveBody(s){
+    return '<div class="cg">'+saveRows(s).map(function(r){
+      return '<span class="chip'+(r.prof?' prof':'')+'">'+esc(r.ab)+' '+(r.bonus>=0?'+':'')+r.bonus+(r.prof?' ●':'')+'</span>';
+    }).join('')+'</div>';
+  }
+  function fmtDate(ts){
+    if(!ts) return '';
+    try{ var d = new Date(ts); if(isNaN(d.getTime())) return ''; return d.toLocaleDateString(); }
+    catch(e){ return ''; }
+  }
+
+  function summaryLine(){
+    var n = roster.length;
+    if(!n){ return 'No characters imported yet.'; }
+    var totAvail = roster.reduce(function(a,r){ return a + (r.summary.available||0); }, 0);
+    return '<b>'+n+'</b> character'+(n>1?'s':'') +
+           ' · <b>'+totAvail+'</b> AP available across the party';
+  }
+
+  // (v0.194 extraHTML/chipRow block removed — superseded by buildSections)
+
+  // collapsible card sections (UI add)
+  function chipGroup(label, arr){
+    if(!arr || !arr.length) return '';
+    return '<div class="cg">'+(label?'<span class="cglabel">'+esc(label)+'</span>':'')
+         + arr.map(function(x){ return '<span class="chip">'+esc(x)+'</span>'; }).join('') + '</div>';
+  }
+  function slotLine(c){
+    var parts=[];
+    if((c.pactSlots||0)>0) parts.push(c.pactSlots+' pact ×L'+(c.pactLevel||0));
+    (c.slots||[]).forEach(function(n,i){ if(+n>0) parts.push('L'+(i+1)+' ×'+(+n)); });
+    (c.arcanum||[]).forEach(function(n,i){ if(+n>0) parts.push('Arcanum L'+(6+i)+' ×'+(+n)); });
+    if(!parts.length) return '';
+    return parts.map(function(p){return '<span class="slotpill">'+esc(p)+'</span>';}).join('');
+  }
+  function hasKnown(s){ return (s.casting||[]).some(function(c){return (c.knownTotal||0)>0;}); }
+  function knownBtnHTML(s,id){ return hasKnown(s) ? '<div class="cardactions"><button type="button" class="skbtn" data-known="'+esc(id)+'">📖 Known spells</button></div>' : ''; }
+  function knownSpellsOverlayHTML(name,cs){
+    var none='<span style="opacity:.55">— not individually named in this sheet —</span>';
+    var h='<h2 class="ov-h">'+esc(name)+' — Known Spells</h2>'; var any=false;
+    (cs||[]).forEach(function(c){ if(!((c.knownTotal||0)>0)) return; any=true;
+      h+='<div class="ov-sub" style="margin:10px 0 4px">'+esc(c.trad||'')+' › '+esc(c.disc||'')+(c.prepared?' (prepared)':'')+'</div>'+
+        '<table class="sktab"><thead><tr><th>Level</th><th class="num">Known</th><th>Spells</th></tr></thead><tbody>';
+      if((c.cantrips||0)>0){ var cn=((c.cantripNames||[])||[]).filter(Boolean);
+        h+='<tr><td>Cantrips</td><td class="num">'+c.cantrips+'</td><td>'+(cn.length?cn.map(esc).join(', '):none)+'</td></tr>'; }
+      for(var L=1;L<=9;L++){ var n=(c.known&&c.known[L-1])||0; if(!n) continue;
+        var nm=((c.knownNames&&c.knownNames[L-1])||[]).filter(Boolean);
+        h+='<tr><td>L'+L+'</td><td class="num">'+n+'</td><td>'+(nm.length?nm.map(esc).join(', '):none)+'</td></tr>'; }
+      h+='</tbody></table>'; });
+    if(!any) h+='<div class="ov-sub">No known spells recorded.</div>';
+    return h;
+  }
+  function castBody(cs){
+    if(!cs || !cs.length) return '';
+    return cs.map(function(c){
+      var line = (c.trad?esc(c.trad)+' › ':'') + esc(c.disc||'—');
+      var bits = [];
+      if(c.ab) bits.push(esc(c.ab));
+      if(c.dc!=null) bits.push('DC '+(+c.dc));
+      if(c.atk!=null) bits.push('Atk '+((+c.atk)>=0?'+':'')+(+c.atk));
+      if(c.rank) bits.push('Rank '+(+c.rank));
+      if((c.cantrips||0)>0) bits.push('Cantrips '+c.cantrips);
+      if(bits.length) line += ' · ' + bits.join(' · ');
+      if(c.prepared) line += ' (prepared)';
+      var sl=slotLine(c);
+      return '<div class="castline">'+line+'</div>'+(sl?'<div class="castslots">'+sl+'</div>':'');
+    }).join('');
+  }
+  function secBlock(title, body){
+    if(!body) return '';
+    return '<div class="sec"><div class="secrow"><span class="sectitle">'+esc(title)+'</span><span class="chev">▸</span></div>'
+         + '<div class="secbody">'+body+'</div></div>';
+  }
+  function kvRows(rows){
+    if(!rows.length) return '';
+    return '<div class="kvs">'+rows.map(function(r){
+      return '<div class="kvrow"><span class="kk">'+esc(r[0])+'</span><span class="vv">'+esc(r[1])+'</span></div>';
+    }).join('')+'</div>';
+  }
+  function resBody(s){
+    var rows=[];
+    if((s.vigor||0)>0)   rows.push(['Vigor', s.vigor + (s.vigorCap!=null?(' / '+s.vigorCap+' cap'):'')]);
+    if((s.grit||0)>0)    rows.push(['Grit', s.grit]);
+    if((s.ki||0)>0)      rows.push(['Ki / Focus', s.ki]);
+    if((s.sorcery||0)>0) rows.push(['Sorcery (extra)', s.sorcery]);
+    if((s.attune||0)>0)  rows.push(['Attunement', s.attune]);
+    if(s.martiallyBound) rows.push(['Martially Bound', s.martiallyBound]);
+    return kvRows(rows);
+  }
+  function pactBuildBody(s){
+    var h = kvRows([['AP earned', s.earned||0],['AP spent', s.spent||0],['AP available', s.available||0],
+                    ['Purchases', s.purchases||0],['Rules', s.rules||'?']]);
+    if(s.warningList && s.warningList.length){
+      h += '<div class="cglabel" style="margin-top:8px">Build warnings ('+s.warningList.length+')</div>';
+      h += s.warningList.map(function(w){ return '<div class="warnitem">⚠ '+esc(w)+'</div>'; }).join('');
+    }
+    if(s.unnamed>0) h += '<div class="warnitem">⚠ '+s.unnamed+' unnamed spell/feat entr'+(s.unnamed>1?'ies':'y')+'</div>';
+    var aw = (s.awards||[]).slice().sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+    h += '<div class="cglabel" style="margin-top:8px">AP awards / grants ('+aw.length+')</div>';
+    if(!aw.length){ h += '<div class="awnone">No AP awards recorded yet.</div>'; }
+    else { h += aw.map(function(a){ var dt=fmtDate(a.ts);
+      return '<div class="awrow'+(a.disc?' disc':'')+'"><span class="amt">'+(a.amount>=0?'+':'')+a.amount+'</span>'
+           + '<span class="lab">'+esc(a.label||'(unlabelled award)')+(a.disc?' <span class="disctag">discount</span>':'')+'</span>'
+           + (dt?'<span class="dt">'+esc(dt)+'</span>':'')+'</div>'; }).join(''); }
+    return h;
+  }
+  function weaponProfList(wp){ wp=wp||{}; var o=[];
+    if(wp.simple) o.push('Simple');
+    if(wp.allMartial) o.push('All martial'); else if(wp.martial) o.push('Martial'+((+wp.martial>1)?(' ×'+(+wp.martial)):''));
+    if(wp.improvised) o.push('Improvised');
+    return o; }
+  function armourProfList(ar){ ar=ar||{}; var o=[];
+    ['light','medium','heavy','shield'].forEach(function(k){ if(ar[k]) o.push(k.charAt(0).toUpperCase()+k.slice(1)); });
+    return o; }
+  function weaponArmourBody(s){
+    var wp=weaponProfList(s.weaponProf), ar=armourProfList(s.armour);
+    function chips(arr){ return arr.length ? arr.map(function(x){return '<span class="chip">'+esc(x)+'</span>';}).join('') : '<span class="chip" style="opacity:.6">None</span>'; }
+    return '<div class="cg"><span class="cglabel">Weapons</span>'+chips(wp)+'</div>'+
+           '<div class="cg"><span class="cglabel">Armour</span>'+chips(ar)+'</div>';
+  }
+  function buildSections(s, id){
+    var h = '';
+    h += secBlock('Skills & Tools', chipGroup('Skills',s.skills)+chipGroup('Tools',s.tools)+chipGroup('Instruments',s.instruments));
+    h += secBlock('Expertise & Saves', chipGroup('Expertise',s.expertise)+chipGroup('Saves',s.saves)+chipGroup('Masteries',s.masteries));
+    h += secBlock('Saving Throws', saveBody(s));
+    h += secBlock('Weapons & Armour', weaponArmourBody(s));
+    h += secBlock('Resources & pools', resBody(s));
+    h += secBlock('Class features', chipGroup('', s.features));
+    h += secBlock('Spellcasting', castBody(s.casting) + knownBtnHTML(s, id));
+    h += secBlock('Boons · Drawbacks · Arts', chipGroup('Boons',s.boons)+chipGroup('Drawbacks',s.drawbacks)+chipGroup('Arts',s.arts));
+    h += secBlock('Lineage & racial', (s.lineage?'<div class="cg"><span class="cglabel">Lineage</span><span class="chip lin">'+esc(s.lineage)+'</span></div>':'')
+                + chipGroup('Traits',s.racialTraits)+chipGroup('Spells',s.racialSpells));
+    h += secBlock('PACT build · warnings · AP history', pactBuildBody(s));
+    return h;
+  }
+  function cardHTML(r){
+    var s = r.summary;
+    var lvl = (s.apLevel!=null ? s.apLevel : '?');
+    var avail = (s.available||0);
+    var availClass = avail>0 ? 'pos' : (avail<0 ? 'neg' : 'zero');
+
+    // compact warning icon (hover for details) — full list lives in the PACT-build expander
+    var warnTip = (s.warningList||[]).slice();
+    if(s.unnamed>0) warnTip.push(s.unnamed+' unnamed spell/feat entr'+(s.unnamed>1?'ies':'y'));
+    var warnN = (s.warnings||0) + (s.unnamed>0?1:0);
+    var warnIcon = warnN ? '<span class="warnicon" title="'+esc(warnTip.join('\n'))+'">⚠ '+(s.warnings||0)+(s.unnamed>0?('+'+s.unnamed):'')+'</span>' : '';
+
+    // stat strip cells
+    var statCells = [
+      ['HP', s.hp],
+      ['AC', acCellHTML(s.ac, s.name), true],
+      ['Speed', (s.speed!=null? s.speed+'′' : '—')],
+      ['Pass. Perc', passivePerc(s)],
+      ['Prof', sgnSafe(s.prof)],
+      ['Save DC', (s.saveDC==null?'—':s.saveDC)]
+    ].filter(Boolean);
+    var statsHTML = statCells.map(function(c){
+      return '<div class="stat"><div class="k">'+esc(c[0])+'</div><div class="v">'+(c[2]?c[1]:esc(c[1]))+'</div></div>';
+    }).join('');
+
+    return '' +
+    '<div class="card" data-id="'+esc(r.id)+'">' +
+      '<div class="chead">' +
+        '<button type="button" class="rmcard" title="Remove from console" data-rm="'+esc(r.id)+'">×</button>' +
+        '<div class="cname">'+esc(s.name)+warnIcon+'</div>' +
+        '<div class="csub">'+esc(speciesDisp(s))+' · '+esc(fmtClass(s))+
+            ' · Level '+esc(lvl)+' <span class="tier">T'+esc(s.tier)+'</span></div>' +
+        '<div class="cardactions"><button type="button" class="skbtn" data-sk="'+esc(r.id)+'">🎯 Skills</button> <button type="button" class="skbtn" data-tools="'+esc(r.id)+'">🛠 Tools</button></div>' +
+      '</div>' +
+      '<div class="stats">'+statsHTML+'</div>' +
+      buildSections(s, r.id) +
+    '</div>';
+  }
+
+  function sgnSafe(x){
+    if(x==null || isNaN(x)) return (x==null?'—':String(x));
+    return (x>=0?'+':'')+x;
+  }
+
+  /* ============ Table view (merged from the DataTable console) ============ */
+  var view='card';                                   // 'card' | 'table'
+  var sort={ key:'name', dir:1 };
+  var expanded=null;                                 // roster index expanded in table view
+  var COLKEY='pact_dm_v3_cols';
+  var hiddenCols=(function(){ try{ var r=localStorage.getItem(COLKEY); if(r){ var a=JSON.parse(r); return new Set(Array.isArray(a)?a:[]); } }catch(e){} return new Set(['species2','class2','earned','spent']); })();
+  function saveCols(){ try{ localStorage.setItem(COLKEY, JSON.stringify(Array.from(hiddenCols))); }catch(e){} }
+  function visCols(){ return COLS.filter(function(c){ return c.key==='name' || !hiddenCols.has(c.key); }); }
+  function _rows(){ return roster.map(function(r){ return r.summary; }); }   // analysis objects, roster-aligned
+  function _idOf(a){ var rs=_rows(), i=rs.indexOf(a); return (i>=0&&roster[i])?roster[i].id:''; }
+  function speciesText(a){ var s=a.species||'—'; if(a.species2&&a.species2!=='(none)') return 'Half-'+s+' '+a.species2; return s; }
+  function classText(a){ var c=a.originClass||'—'; if(a.originClass2&&a.originClass2!=='(none)') c+=' / '+a.originClass2; return c; }
+  function dcDisp(a){ return (a.saveDC==null)?'—':a.saveDC; }
+  function flagCount(a){ return (a.unnamed>0?1:0)+(a.warnings>0?1:0); }
+  function flagDisp(a){ var n=flagCount(a); if(!n) return '<span class="flag-none">—</span>'; var tip=(a.warningList||[]).slice(); if(a.unnamed>0) tip.push(a.unnamed+' unnamed spell/feat entr'+(a.unnamed>1?'ies':'y')); return '<span class="flag" title="'+esc(tip.join('\n'))+'">⚠ '+n+'</span>'; }
+  var COLS = [
+    {key:'name',     label:'Name',     type:'text', cls:'name', get:function(a){return a.name||'';}, disp:function(a){return esc(a.name||'Unnamed Hero');}},
+    {key:'species',  label:'Species',  type:'text', get:function(a){return speciesText(a);}, disp:function(a){return esc(speciesText(a));}},
+    {key:'class',    label:'Class',    type:'text', get:function(a){return classText(a);}, disp:function(a){return esc(classText(a));}},
+    {key:'species2', label:'Species 2',type:'text', get:function(a){return (a.species2&&a.species2!=='(none)')?a.species2:'';}, disp:function(a){return esc((a.species2&&a.species2!=='(none)')?a.species2:'—');}},
+    {key:'class2',   label:'Class 2',  type:'text', get:function(a){return (a.originClass2&&a.originClass2!=='(none)')?a.originClass2:'';}, disp:function(a){return esc((a.originClass2&&a.originClass2!=='(none)')?a.originClass2:'—');}},
+    {key:'lvl',      label:'Lvl',      type:'num',  cls:'ctr', get:function(a){return a.hd||0;}, disp:function(a){return 'HD '+(a.hd||0)+' · T'+(a.tier||0);}},
+    {key:'hp',       label:'HP',       type:'num',  cls:'num', get:function(a){return a.hp||0;}, disp:function(a){return a.hp;}},
+    {key:'ac',       label:'AC',       type:'num',  cls:'num', get:function(a){return a.ac||0;}, disp:function(a){return acCellHTML(a.ac, a.name);}},
+    {key:'dc',       label:'DC',       type:'num',  cls:'num', get:function(a){return a.saveDC==null?-1:a.saveDC;}, disp:function(a){return dcDisp(a);}},
+    {key:'passperc', label:'Pass. Perc',type:'num', cls:'ctr', get:function(a){return passivePerc(a);}, disp:function(a){return passivePerc(a);}},
+    {key:'speed',    label:'Speed',    type:'num',  cls:'ctr', get:function(a){return a.speed||0;}, disp:function(a){return (a.speed!=null?a.speed+'′':'—');}},
+    {key:'prof',     label:'Prof',     type:'num',  cls:'ctr', get:function(a){return a.prof||0;}, disp:function(a){return '+'+(a.prof||0);}},
+    {key:'saves',    label:'Saves',    type:'num',  cls:'ctr', get:function(a){return (a.saves||[]).length;}, disp:function(a){return savesCell(a);}},
+    {key:'slots',    label:'Spell Slots',type:'text', get:function(a){return slotSummary(a);}, disp:function(a){var s=slotSummary(a);return s?esc(s):'<span class="flag-none">—</span>';}},
+    {key:'vigor',    label:'Vigor',    type:'num',  cls:'ctr', get:function(a){return a.vigor||0;}, disp:function(a){return compactNum(a.vigor);}},
+    {key:'grit',     label:'Grit',     type:'num',  cls:'ctr', get:function(a){return a.grit||0;}, disp:function(a){return compactNum(a.grit);}},
+    {key:'attune',   label:'Attune',   type:'num',  cls:'ctr', get:function(a){return a.attune||0;}, disp:function(a){return compactNum(a.attune);}},
+    {key:'ki',       label:'Ki',       type:'num',  cls:'ctr', get:function(a){return a.ki||0;}, disp:function(a){return compactNum(a.ki);}},
+    {key:'sorc',     label:'Sorc',     type:'num',  cls:'ctr', get:function(a){return a.sorcery||0;}, disp:function(a){return compactNum(a.sorcery);}},
+    {key:'earned',   label:'AP Earned',type:'num',  cls:'num', get:function(a){return a.earned||0;}, disp:function(a){return a.earned;}},
+    {key:'spent',    label:'AP Spent', type:'num',  cls:'num', get:function(a){return a.spent||0;}, disp:function(a){return a.spent;}},
+    {key:'available',label:'AP Avail', type:'num',  cls:'num', get:function(a){return a.available||0;}, disp:function(a){return availCell(a.available);}},
+    {key:'flags',    label:'Flags',    type:'num',  cls:'ctr', get:function(a){return flagCount(a);}, disp:function(a){return flagDisp(a);}}
+  ];
+  function availClass(v){ return v>0?'avail-pos':(v<0?'avail-neg':'avail-zero'); }
+  function availCell(v){ return '<span class="'+availClass(v)+'">'+(v>0?'+':'')+v+'</span>'; }
+  function compactNum(v){ v=+v||0; return v>0?String(v):'<span class="flag-none">—</span>'; }
+  var SAVE_ABBR={STR:'St',DEX:'De',CON:'Co',INT:'In',WIS:'Wi',CHA:'Ch'};
+  function savesCell(a){ return saveRows(a).map(function(r){ return '<span'+(r.prof?' class="save-prof"':'')+'>'+SAVE_ABBR[r.ab]+(r.bonus>=0?'+':'')+r.bonus+'</span>'; }).join(' '); }
+  function slotSummary(a){ var out=[]; (a.casting||[]).forEach(function(c){ var p=[]; if((c.cantrips||0)>0) p.push('C'+c.cantrips); (c.slots||[]).forEach(function(n,i){ if(+n>0) p.push('L'+(i+1)+'×'+(+n)); }); if((c.pactSlots||0)>0) p.push(c.pactSlots+'p'); if(p.length) out.push(p.join(' ')); }); return out.join('  |  '); }
+  function colByKey(k){ for(var i=0;i<COLS.length;i++) if(COLS[i].key===k) return COLS[i]; return null; }
+  function sortedRoster(){ var col=colByKey(sort.key)||COLS[0]; var arr=_rows().map(function(a,i){return {a:a,i:i};}); arr.sort(function(x,y){ var va=col.get(x.a), vb=col.get(y.a), r; if(col.type==='num'){ r=(va||0)-(vb||0); } else { var sa=String(va).toLowerCase(), sb=String(vb).toLowerCase(); r=sa<sb?-1:(sa>sb?1:0); } if(r===0) r=x.i-y.i; return r*sort.dir; }); return arr; }
+  function listSection(title,arr){ if(!arr||!arr.length) return ''; var h='<div class="detail-col"><h3>'+esc(title)+'</h3><ul class="flaglist">'; arr.forEach(function(x){ h+='<li>'+esc(x)+'</li>'; }); return h+'</ul></div>'; }
+  function castingSection(a){ var cs=a.casting||[]; if(!cs.length) return ''; var h='<div class="detail-col"><h3>Spellcasting</h3><ul class="flaglist">'; cs.forEach(function(c){ var line=''; if(c.trad) line+=esc(c.trad)+' › '; line+=esc(c.disc||'—'); var bits=[]; if(c.ab) bits.push(esc(c.ab)); if(c.dc!=null) bits.push('DC '+(+c.dc)); if(c.atk!=null) bits.push('Atk '+((+c.atk)>=0?'+':'')+(+c.atk)); if(c.rank) bits.push('Rank '+(+c.rank)); if((c.cantrips||0)>0) bits.push('Cantrips '+c.cantrips); if(bits.length) line+=' · '+bits.join(' · '); if(c.prepared) line+=' <span class="badge">prepared</span>'; var sl=slotLine(c); h+='<li>'+line+(sl?'<div class="castslots">'+sl+'</div>':'')+'</li>'; }); h+='</ul>'; if(hasKnown(a)) h+='<div class="detail-actions"><button type="button" class="skbtn" data-known="'+esc(_idOf(a))+'">📖 Known spells</button></div>'; return h+'</div>'; }
+  function lineageSection(a){ var hasLin=a.lineage&&a.lineage!==''; var rs=a.racialSpells||[]; if(!hasLin&&!rs.length) return ''; var h='<div class="detail-col"><h3>Lineage</h3>'; if(hasLin) h+='<div class="meta">'+esc(a.lineage)+'</div>'; if(rs.length){ h+='<ul class="flaglist">'; rs.forEach(function(x){ h+='<li>'+esc(x)+'</li>'; }); h+='</ul>'; } return h+'</div>'; }
+  function resourcesSection(a){ var rows=[]; if(a.vigor>0) rows.push(['Vigor', a.vigor+(a.vigorCap!=null?(' / '+a.vigorCap+' cap'):'')]); if(a.grit>0) rows.push(['Grit',a.grit]); if(a.ki>0) rows.push(['Ki / Focus',a.ki]); if(a.sorcery>0) rows.push(['Sorcery (extra)',a.sorcery]); if(a.attune>0) rows.push(['Attunement',a.attune]); if(a.martiallyBound) rows.push(['Martially Bound',a.martiallyBound]); if(!rows.length) return ''; var h='<div class="detail-col"><h3>Resources</h3><table class="awards"><tbody>'; rows.forEach(function(r){ h+='<tr><td>'+esc(r[0])+'</td><td style="text-align:right;font-weight:700;color:var(--navy);white-space:nowrap;">'+esc(r[1])+'</td></tr>'; }); return h+'</tbody></table></div>'; }
+  function weaponArmourSection(a){ var wp=weaponProfList(a.weaponProf), ar=armourProfList(a.armour); var h='<div class="detail-col"><h3>Weapons &amp; Armour</h3><ul class="flaglist">'; h+='<li><b>Weapons:</b> '+(wp.length?wp.map(esc).join(', '):'<span class="none">None</span>')+'</li>'; h+='<li><b>Armour:</b> '+(ar.length?ar.map(esc).join(', '):'<span class="none">None</span>')+'</li>'; return h+'</ul></div>'; }
+  function detailHTML(a){ var id=_idOf(a); var h='<div class="detail-inner"><div class="detail-actions"><button type="button" class="skbtn" data-sk="'+esc(id)+'">🎯 All skills &amp; bonuses</button> <button type="button" class="skbtn" data-tools="'+esc(id)+'">🛠 Tools</button></div><div class="detail-grid">'; h+='<div class="detail-col"><h3>Award history</h3>'; var aw=(a.awards||[]).slice(); if(!aw.length){ h+='<div class="meta">No AP awards recorded in this character’s log.</div>'; } else { aw.sort(function(x,y){ return (y.ts||0)-(x.ts||0); }); h+='<table class="awards"><thead><tr><th>Amount</th><th>Label</th><th>Date</th></tr></thead><tbody>'; aw.forEach(function(w){ h+='<tr><td class="amt">+'+(w.amount||0)+'</td><td>'+esc(w.label||'—')+(w.disc?'<span class="badge">disc</span>':'')+'</td><td>'+fmtDate(w.ts)+'</td></tr>'; }); h+='</tbody></table>'; } h+='<div class="meta">'+(a.purchases||0)+' purchase'+((a.purchases===1)?'':'s')+' logged · '+(a.earned||0)+' earned · '+(a.spent||0)+' spent · '+(a.available||0)+' available</div></div>'; h+='<div class="detail-col"><h3>Flags &amp; notes</h3><ul class="flaglist">'; var any=false; if(a.warnings>0){ any=true; h+='<li class="warn">⚠ '+a.warnings+' build warning'+(a.warnings>1?'s':'')+' raised by the rules engine:</li>'; (a.warningList||[]).forEach(function(w){ h+='<li class="warn" style="margin-left:6px;list-style:none;">• '+esc(w)+'</li>'; }); } if(a.unnamed>0){ any=true; h+='<li class="warn">⚠ '+a.unnamed+' unnamed spell/feat entr'+(a.unnamed>1?'ies':'y')+' — player has slots bought but not labelled.</li>'; } if(!any){ h+='<li class="none">No flags — build is clean.</li>'; } h+='</ul><div class="meta">Rules '+esc(a.rules||'?')+' · AP-level '+(a.apLevel==null?'—':a.apLevel)+' · Speed '+(a.speed||'—')+' ft · Pass. Perc '+passivePerc(a)+' · Prof +'+(a.prof||0)+(a.__file?(' · '+esc(a.__file)):'')+'</div></div>'; h+=castingSection(a); h+=resourcesSection(a); h+=lineageSection(a); h+=listSection('Skills',a.skills); h+=listSection('Tools & instruments',(a.tools||[]).concat(a.instruments||[])); h+=listSection('Expertise',a.expertise); h+=listSection('Saving throws',a.saves); h+=listSection('Weapon masteries',a.masteries); h+=weaponArmourSection(a); h+=listSection('Arts & Techniques',a.arts); h+=listSection('Boons',a.boons); h+=listSection('Drawbacks',a.drawbacks); h+=listSection('Class features',a.features); h+='</div></div>'; return h; }
+  function kv(k,v){ return '<div class="kv"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v)+'</span></div>'; }
+  function renderHead(){ var tr='<tr><th class="exq"></th>'; visCols().forEach(function(c){ var active=(sort.key===c.key); var arrow=active?(sort.dir>0?'▲':'▼'):''; var cls=(c.type==='num'&&c.cls==='num')?'num':(c.cls==='ctr'?'ctr':''); tr+='<th data-key="'+c.key+'" class="'+(active?'active ':'')+cls+'">'+esc(c.label)+'<span class="arrow">'+arrow+'</span></th>'; }); tr+='</tr>'; $('thead').innerHTML=tr; Array.prototype.forEach.call($('thead').querySelectorAll('th'),function(th){ th.addEventListener('click',function(){ var k=th.getAttribute('data-key'); if(!k) return; if(sort.key===k) sort.dir=-sort.dir; else { sort.key=k; sort.dir=(colByKey(k).type==='num')?-1:1; } render(); }); }); }
+  function renderBody(){ var rows=sortedRoster(); var html=''; rows.forEach(function(rec){ var a=rec.a, ri=rec.i, isSel=(expanded===ri); html+='<tr class="data'+(isSel?' sel':'')+'" data-ri="'+ri+'">'; html+='<td class="exq"><span class="exq-chev">▸</span></td>'; visCols().forEach(function(c){ var cls=(c.cls==='name')?'name':((c.type==='num'&&c.cls==='num')?'num':(c.cls==='ctr'?'ctr':'')); html+='<td class="'+cls+'">'+c.disp(a)+'</td>'; }); html+='</tr>'; if(isSel){ html+='<tr class="detail"><td colspan="'+(visCols().length+1)+'">'+detailHTML(a)+'</td></tr>'; } }); var tb=$('tbody'); tb.innerHTML=html; Array.prototype.forEach.call(tb.querySelectorAll('tr.data'),function(tr){ tr.addEventListener('click',function(){ var ri=+tr.getAttribute('data-ri'); expanded=(expanded===ri)?null:ri; render(); }); }); }
+  function renderCards(){ var rows=sortedRoster(); var html=''; rows.forEach(function(rec){ var a=rec.a, ri=rec.i, open=(expanded===ri); html+='<div class="ccard"><div class="chead" data-ri="'+ri+'"><div><div class="nm">'+esc(a.name||'Unnamed Hero')+(flagCount(a)?' <span class="flag">⚠</span>':'')+'</div><div class="sub">'+esc(speciesText(a))+' · '+esc(classText(a))+' · HD '+(a.hd||0)+' · T'+(a.tier||0)+'</div></div><div class="chev">'+(open?'−':'+')+'</div></div>'; if(open){ html+='<div class="cbody">'; html+=kv('HP',a.hp); html+='<div class="kv"><span class="k">AC</span><span class="v">'+acCellHTML(a.ac,a.name)+'</span></div>'; html+=kv('Save DC',dcDisp(a)); html+=kv('AP Earned',a.earned); html+=kv('AP Spent',a.spent); html+='<div class="kv"><span class="k">AP Available</span><span class="v">'+availCell(a.available)+'</span></div>'; html+='<div class="kv"><span class="k">Flags</span><span class="v">'+flagDisp(a)+'</span></div>'; html+=detailHTML(a); html+='</div>'; } html+='</div>'; }); var c=$('cards'); c.innerHTML=html; Array.prototype.forEach.call(c.querySelectorAll('.chead'),function(h){ h.addEventListener('click',function(){ var ri=+h.getAttribute('data-ri'); expanded=(expanded===ri)?null:ri; render(); }); }); }
+  function renderTable(){ renderHead(); renderBody(); renderCards(); }
+  function wireColumns(){ var btn=$('colBtn'), panel=$('colPanel'); if(!btn||!panel) return; function build(){ panel.innerHTML=COLS.map(function(c){ var locked=c.key==='name'; var checked=locked||!hiddenCols.has(c.key); return '<label class="'+(locked?'locked':'')+'"><input type="checkbox" data-k="'+c.key+'"'+(checked?' checked':'')+(locked?' disabled':'')+'>'+esc(c.label)+'</label>'; }).join(''); Array.prototype.forEach.call(panel.querySelectorAll('input[data-k]'),function(inp){ inp.addEventListener('change',function(){ var k=inp.getAttribute('data-k'); if(inp.checked) hiddenCols.delete(k); else hiddenCols.add(k); saveCols(); render(); }); }); } btn.addEventListener('click',function(e){ e.stopPropagation(); build(); panel.classList.toggle('open'); }); document.addEventListener('click',function(e){ if(!panel.contains(e.target) && e.target!==btn) panel.classList.remove('open'); }); }
+  function wireToggle(){ var b=$('viewToggle'); if(!b) return; function lbl(){ b.textContent=(view==='card')?'▦ Table view':'▤ Card view'; b.title=(view==='card')?'Switch to the data-table view':'Switch to the card-grid view'; } lbl(); b.addEventListener('click',function(){ view=(view==='card')?'table':'card'; lbl(); render(); }); }
+
+  /* ---------- render dispatcher (card grid OR data table) ---------- */
+  function render(){
+    $('summary').innerHTML = summaryLine();
+    var has = roster.length>0;
+    $('empty').style.display = has ? 'none' : 'block';
+    var cardOn = (view==='card');
+    var grid = $('grid'); if(grid) grid.style.display = (has&&cardOn) ? '' : 'none';
+    var tr = $('tableRoot'); if(tr) tr.style.display = (has&&!cardOn) ? '' : 'none';
+    if(!has){ if(grid) grid.innerHTML=''; return; }
+    if(cardOn){ grid.innerHTML = roster.map(cardHTML).join(''); }
+    else { renderTable(); }
+  }
+
+  /* ---------- event wiring (delegated) ---------- */
+  $('grid').addEventListener('click', function(ev){
+    var t = ev.target;
+    var rm = t.closest ? t.closest('[data-rm]') : null;
+    if(rm){ removeCard(rm.getAttribute('data-rm')); return; }
+    var srow = t.closest ? t.closest('.secrow') : null;
+    if(srow){ srow.parentNode.classList.toggle('open'); return; }
+    var tog = t.closest ? t.closest('[data-toggle]') : null;
+    if(tog){
+      var card = tog.parentNode;
+      card.classList.toggle('open');
+      return;
+    }
+  });
+
+  // file pickers
+  var fi = $('fileInput');
+  function openPicker(){ fi.value=''; fi.click(); }
+  $('pickBtn').onclick = openPicker;
+  $('pickBtn2').onclick = openPicker;
+  fi.addEventListener('change', function(){ handleFiles(fi.files); });
+
+  $('clearBtn').onclick = clearParty;
+
+  // drag & drop
+  var drop = $('drop');
+  ['dragenter','dragover'].forEach(function(evt){
+    drop.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); drop.classList.add('drag'); });
+  });
+  ['dragleave','dragend'].forEach(function(evt){
+    drop.addEventListener(evt, function(e){ e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag'); });
+  });
+  drop.addEventListener('drop', function(e){
+    e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag');
+    if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+  });
+  // also accept drops anywhere on the window (prevent browser navigating to the file)
+  window.addEventListener('dragover', function(e){ e.preventDefault(); });
+  window.addEventListener('drop', function(e){
+    if(e.target && e.target.closest && e.target.closest('#drop')) return; // handled above
+    e.preventDefault();
+    if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+
+  /* ---------- AP grant code ---------- */
+  $('genBtn').onclick = function(){
+    var amt = parseInt($('grantAmt').value, 10);
+    if(isNaN(amt)){ alert('Enter a whole-number AP amount.'); return; }
+    var note = $('grantNote').value || '';
+    var code;
+    try{ code = dmMakeGrant(amt, note); }
+    catch(e){ code = ''; alert('Could not generate code: '+(e&&e.message?e.message:'error')); }
+    $('grantCode').value = code;
+  };
+  $('copyBtn').onclick = function(){
+    var el = $('grantCode');
+    var txt = el.value;
+    if(!txt){ return; }
+    var done = function(){ var b=$('copyBtn'); var o=b.textContent; b.textContent='Copied!'; setTimeout(function(){ b.textContent=o; }, 1200); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(done, function(){ fallbackCopy(el, done); });
+    } else { fallbackCopy(el, done); }
+  };
+  function fallbackCopy(el, done){
+    try{ el.removeAttribute('readonly'); el.select(); el.setSelectionRange(0, el.value.length);
+      document.execCommand('copy'); el.setAttribute('readonly','readonly'); done();
+    }catch(e){ alert('Copy not supported — select the code and copy manually.'); }
+  }
+
+  /* ---------- skill overlays: per-character skills + party matrix ---------- */
+  function _sgnv(n){ n=+n||0; return (n>=0?'+':'')+n; }
+  function _skillRows(a){
+    var list=(typeof DATA!=='undefined'&&DATA.skillList)?DATA.skillList:[];
+    var pb=a.prof||0, mods=a.mods||{}, P=a.skills||[], E=a.expertise||[];
+    return list.map(function(p){ var nm=p[0],ab=p[1],isP=P.indexOf(nm)>=0,isE=E.indexOf(nm)>=0;
+      return {name:nm,ab:ab,bonus:(mods[ab]||0)+(isP?pb:0)+(isE?pb:0),prof:isP,exp:isE}; });
+  }
+  function skillsOverlayHTML(name,a){
+    var rows=_skillRows(a);
+    var h='<h2 class="ov-h">'+esc(name)+' — Skills</h2>'+
+      '<div class="ov-sub">Prof +'+(a.prof||0)+' · ● proficient · ◆ expertise (proficiency counted twice)</div>'+
+      '<table class="sktab"><thead><tr><th>Skill</th><th>Ability</th><th class="num">Bonus</th></tr></thead><tbody>';
+    rows.forEach(function(r){ var cls=r.exp?'exp':(r.prof?'prof':'');
+      var tag=r.exp?'<span class="pdot">◆</span>':(r.prof?'<span class="pdot">●</span>':'');
+      h+='<tr class="'+cls+'"><td>'+tag+esc(r.name)+'</td><td>'+esc(r.ab)+'</td><td class="num">'+_sgnv(r.bonus)+'</td></tr>'; });
+    return h+'</tbody></table>';
+  }
+  function toolRows(a){
+    var toolAbil=(typeof DATA!=='undefined'&&DATA.toolAbil)?DATA.toolAbil:{};
+    var pb=a.prof||0, mods=a.mods||{}, exp=a.toolExpertise||[];
+    var list=(a.tools||[]).concat(a.instruments||[]);
+    return list.map(function(t){ var ab=toolAbil[t]||''; var isE=exp.indexOf(t)>=0;
+      return {name:t, ab:ab, bonus:(ab?(mods[ab]||0):0)+pb+(isE?pb:0), exp:isE}; });
+  }
+  function toolsOverlayHTML(name,a){
+    var rows=toolRows(a);
+    var h='<h2 class="ov-h">'+esc(name)+' — Tools & Instruments</h2>'+
+      '<div class="ov-sub">Proficiency bonus +'+(a.prof||0)+' · ● proficient · ◆ expertise</div>';
+    if(!rows.length) return h+'<div class="ov-sub">No tool or instrument proficiencies.</div>';
+    h+='<table class="sktab"><thead><tr><th>Tool / Instrument</th><th>Ability</th><th class="num">Bonus</th></tr></thead><tbody>';
+    rows.forEach(function(r){ var cls=r.exp?'exp':'prof';
+      var tag=r.exp?'<span class="pdot">◆</span>':'<span class="pdot">●</span>';
+      h+='<tr class="'+cls+'"><td>'+tag+esc(r.name)+'</td><td>'+esc(r.ab||'—')+'</td><td class="num">'+_sgnv(r.bonus)+'</td></tr>'; });
+    return h+'</tbody></table>';
+  }
+  function _chars(){ return roster.map(function(r){ return {name:(r.summary&&r.summary.name)||'Unnamed Hero', a:r.summary||{}}; }); }
+  function matrixOverlayHTML(chars){
+    if(!chars.length) return '<h2 class="ov-h">Party Skill Matrix</h2><div class="ov-sub">No characters loaded.</div>';
+    var skills=(typeof DATA!=='undefined'&&DATA.skillList)?DATA.skillList:[];
+    var toolAbil=(typeof DATA!=='undefined'&&DATA.toolAbil)?DATA.toolAbil:{};
+    var tset={}; chars.forEach(function(c){ (c.a.tools||[]).concat(c.a.instruments||[]).forEach(function(t){tset[t]=1;}); });
+    var tools=Object.keys(tset).sort();
+    var h='<h2 class="ov-h">Party Skill Matrix</h2>'+
+      '<div class="ov-sub">Per-character bonus · ● proficient · ◆ expertise · tools list only those a PC is trained in · languages are counts only (names aren’t stored in the sheet)</div>'+
+      '<div class="mtx-scroll"><table class="mtx"><thead><tr><th class="rowh">Skill</th>';
+    chars.forEach(function(c){ h+='<th>'+esc(c.name)+'</th>'; });
+    h+='</tr></thead><tbody>';
+    skills.forEach(function(p){ var nm=p[0],ab=p[1];
+      h+='<tr><td class="rowh">'+esc(nm)+' <span class="abil">'+esc(ab)+'</span></td>';
+      chars.forEach(function(c){ var a=c.a,pb=a.prof||0,mods=a.mods||{},isP=(a.skills||[]).indexOf(nm)>=0,isE=(a.expertise||[]).indexOf(nm)>=0;
+        var b=(mods[ab]||0)+(isP?pb:0)+(isE?pb:0); var cls=isE?'exp':(isP?'prof':'');
+        h+='<td class="'+cls+'">'+_sgnv(b)+(isE?' ◆':(isP?' ●':''))+'</td>'; });
+      h+='</tr>'; });
+    if(tools.length){
+      h+='<tr class="div"><td class="rowh" colspan="'+(chars.length+1)+'">Tools &amp; Instruments</td></tr>';
+      tools.forEach(function(t){ var ab=toolAbil[t]||'';
+        h+='<tr><td class="rowh">'+esc(t)+(ab?' <span class="abil">'+esc(ab)+'</span>':'')+'</td>';
+        chars.forEach(function(c){ var a=c.a,pb=a.prof||0,mods=a.mods||{};
+          var has=(a.tools||[]).concat(a.instruments||[]).indexOf(t)>=0;
+          if(has) h+='<td class="prof">'+_sgnv((mods[ab]||0)+pb)+' ●</td>'; else h+='<td class="muted">·</td>'; });
+        h+='</tr>'; });
+    }
+    h+='<tr class="div"><td class="rowh" colspan="'+(chars.length+1)+'">Languages</td></tr>'+
+       '<tr><td class="rowh">Languages known (count)</td>';
+    chars.forEach(function(c){ h+='<td>'+(c.a.languages||0)+'</td>'; });
+    h+='</tr></tbody></table></div>';
+    return h;
+  }
+  function ledgerOverlayHTML(chars){
+    if(!chars.length) return '<h2 class="ov-h">AP Ledger</h2><div class="ov-sub">No characters loaded.</div>';
+    var LG=[
+     {t:'Core',lines:['Ability scores','Hit Dice','Proficiency bonus','Vigor','Grit','Saving throws','Skills','Tools & instruments','Expertise','Tool expertise','Languages','Attunement slots']},
+     {t:'Combat',lines:['Weapon proficiency','Weapon masteries','Armour proficiency']},
+     {t:'Class & Heritage',lines:['Heritage pack','2nd origin species','Species traits','Class unlocks','2nd origin class','Class features','Ki / Focus points','Sorcery points','Subclass abilities','Subclass unlocks']},
+     {t:'Magic',lines:['Trad ','Cantrips (','Innate spells']},
+     {t:'Boons & Gold',lines:['Boons','Drawbacks','Martially Bound','Starting gold']}
+    ];
+    var TH='font-weight:700;border-top:1px solid var(--line,#3a4150);padding:5px 8px 2px';
+    var h='<h2 class="ov-h">AP Ledger</h2><div class="ov-sub">Full per-character breakdown — every purchase itemised, grouped like the live sheet.</div><div class="mtx-scroll">';
+    chars.forEach(function(c){var a=c.a||{},lines=a.lines||[],it=a.itemize||{};
+      h+='<div style="margin:0 0 16px"><div style="font-size:15px;font-weight:700;margin:8px 0 2px">'+esc(c.name)+' <span style="color:var(--grey,#9aa3b2);font-weight:400;font-size:12px">'+(a.total||0)+' / '+(a.budget||0)+' AP</span></div><table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>';
+      var matched={};
+      LG.forEach(function(g){var ls=lines.filter(function(l){return g.lines.some(function(p){return String(l[0]).indexOf(p)===0;});});ls.forEach(function(l){matched[l[0]]=1;});
+        if(!ls.length)return;var sub=ls.reduce(function(s,l){return s+(l[1]||0);},0);
+        h+='<tr><td style="'+TH+'">'+esc(g.t)+'</td><td style="'+TH+';text-align:right">'+sub+'</td></tr>';
+        ls.forEach(function(l){h+='<tr><td style="padding:1px 8px 1px 16px">'+esc(l[0])+'</td><td style="padding:1px 8px;text-align:right">'+l[1]+'</td></tr>';
+          var items=it[l[0]];if(items&&items.length)items.forEach(function(x){h+='<tr><td style="padding:0 8px 0 28px;color:var(--grey,#9aa3b2);font-size:11px">'+esc(x[0])+'</td><td style="padding:0 8px;text-align:right;color:var(--grey,#9aa3b2);font-size:11px">'+x[1]+'</td></tr>';});});
+      });
+      var other=lines.filter(function(l){return !matched[l[0]];});
+      if(other.length){h+='<tr><td style="'+TH+'">Other</td><td style="'+TH+';text-align:right">'+other.reduce(function(s,l){return s+(l[1]||0);},0)+'</td></tr>';other.forEach(function(l){h+='<tr><td style="padding:1px 8px 1px 16px">'+esc(l[0])+'</td><td style="padding:1px 8px;text-align:right">'+l[1]+'</td></tr>';});}
+      h+='</tbody></table></div>';
+    });
+    return h+'</div>';
+  }
+  function ensureOv(){ if($('ov')) return; var d=document.createElement('div'); d.className='ov'; d.id='ov';
+    d.innerHTML='<div class="ov-card"><button type="button" class="ov-x" id="ovX" title="Close">✕</button><div class="ov-body" id="ovBody"></div></div>';
+    document.body.appendChild(d); }
+  function openOv(html){ ensureOv(); $('ovBody').innerHTML=html; $('ov').classList.add('on'); }
+  function closeOv(){ var ov=$('ov'); if(ov) ov.classList.remove('on'); }
+  function initSkillUI(){
+    ensureOv();
+    var mb=$('matrixBtn'); if(mb) mb.addEventListener('click', function(){ openOv(matrixOverlayHTML(_chars())); });
+    var lb=$('ledgerBtn'); if(lb) lb.addEventListener('click', function(){ openOv(ledgerOverlayHTML(_chars())); });
+    document.addEventListener('click', function(e){
+      var t=e.target;
+      if(t && (t.id==='ovX' || t.id==='ov')){ closeOv(); return; }
+      var sk=t.closest? t.closest('[data-sk]') : null;
+      if(sk){ e.preventDefault(); e.stopPropagation(); var id=sk.getAttribute('data-sk');
+        var r=roster.filter(function(x){return String(x.id)===String(id);})[0];
+        if(r&&r.summary) openOv(skillsOverlayHTML(r.summary.name||'Unnamed Hero', r.summary)); return; }
+      var tl=t.closest? t.closest('[data-tools]') : null;
+      if(tl){ e.preventDefault(); e.stopPropagation(); var tid=tl.getAttribute('data-tools');
+        var rt=roster.filter(function(x){return String(x.id)===String(tid);})[0];
+        if(rt&&rt.summary) openOv(toolsOverlayHTML(rt.summary.name||'Unnamed Hero', rt.summary)); return; }
+      var kn=t.closest? t.closest('[data-known]') : null;
+      if(kn){ e.preventDefault(); e.stopPropagation(); var kid=kn.getAttribute('data-known');
+        var rr=roster.filter(function(x){return String(x.id)===String(kid);})[0];
+        if(rr&&rr.summary) openOv(knownSpellsOverlayHTML(rr.summary.name||'Unnamed Hero', rr.summary.casting||[])); }
+    });
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeOv(); });
+    document.addEventListener('input', function(e){
+      var inp=e.target;
+      if(inp && inp.classList && inp.classList.contains('ac2-in')){
+        var k=inp.getAttribute('data-ac2key'); var v=inp.value.trim();
+        if(v==='') delete ac2[k]; else ac2[k]=v; saveAc2();
+      }
+    });
+  }
+
+  /* ---------- boot ---------- */
+  load();
+  render();
+  initSkillUI();
+  wireColumns();
+  wireToggle();
+})();
+}
+window.DATA ? __dmStart() : document.addEventListener('engine-ready', __dmStart, { once:true });
+</script>
+</body>
+</html>

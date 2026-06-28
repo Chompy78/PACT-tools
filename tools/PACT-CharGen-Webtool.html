@@ -1796,28 +1796,46 @@ function buildToLiveLog(b){
   // de-dup single-instance proficiency lists so the exported Live-Sheet log never carries duplicates (matches the fold-side guard)
   ["saves","skills","expertise","toolExpertise","tools","instruments","masteries","racialTraits","racialSpells"].forEach(function(k){if(Array.isArray(b[k]))b[k]=b[k].filter(function(v,i){return b[k].indexOf(v)===i;});});
   const C=o=>JSON.parse(JSON.stringify(o));let LOG=[],SEQ=1;const ev=o=>{o.seq=SEQ++;o.ts=Date.now();LOG.push(o);};
+  const MUT={
+    skill:(b,p)=>b.skills.push(p.v), expertise:(b,p)=>b.expertise.push(p.v), toolexpertise:(b,p)=>(b.toolExpertise=b.toolExpertise||[]).push(p.v), save:(b,p)=>b.saves.push(p.v),
+    racial:(b,p)=>b.racialTraits.push(p.v), feature:(b,p)=>b.features.push(p.v), art:(b,p)=>(b.arts=b.arts||[]).push(p.v), boon:(b,p)=>b.boons.push(p.v),
+    tool:(b,p)=>b.tools.push(p.v), instrument:(b,p)=>b.instruments.push(p.v), mastery:(b,p)=>b.masteries.push(p.v),
+    subbundle:(b,p)=>{(b.subSpellBundles=b.subSpellBundles||[]).push(p.v);}, unlockclass:(b,p)=>{(b.unlockedClasses=b.unlockedClasses||[]).push(p.v);},
+    subabil:(b,p)=>{(b.subAbilities=b.subAbilities||[]).push(p.v);}, racialspell:(b,p)=>(b.racialSpells=b.racialSpells||[]).push(p.v),
+    drawback:(b,p)=>b.drawbacks.push(p.v)
+  };
   const run=liveBase(), base0=liveBase();
   ev({type:'award',amount:b.budget||0,note:'Imported budget',label:'Award — budget ('+(b.budget||0)+' AP)'});
   if(b.name) ev({type:'name',name:b.name,label:'Name — '+b.name});
   if(b.appearance && Object.keys(b.appearance).some(k=>b.appearance[k])) ev({type:'buy',cat:'patch',payload:{patch:{appearance:C(b.appearance)}},cost:0,level:1,label:'Appearance & description (0 AP)'});
   ev({type:'buy',cat:'create',payload:{},cost:compute(liveBase()).total,level:1,label:'Level 1 character (Hit Die + base)'});
-  const steps=[
-   ['DM customisations',{houseRules:b.houseRules||{boons:{},draws:{},disabled:{boons:[],draws:[]}}}],
-   ['Origin class — '+b.originClass,{originClass:b.originClass}],['Second origin class',{originClass2:b.originClass2}],
-   ['Species — '+b.species,{species:b.species}],['Second origin species',{species2:b.species2}],['Classes unlocked',{unlockedClasses:b.unlockedClasses}],
-   ['Ability scores',{stats:b.stats}],['Hit Dice → '+b.hd,{hd:b.hd}],['Proficiency +'+b.profBonus,{profBonus:b.profBonus}],
-   ['Vigor & Grit',{hardy:b.hardy,tough:b.tough}],['Species traits',{racialTraits:b.racialTraits}],['Saving throws',{saves:b.saves}],
-   ['Skills',{skills:b.skills}],['Expertise',{expertise:b.expertise}],['Languages',{languages:b.languages}],
-   ['Tools & instruments',{tools:b.tools,instruments:b.instruments,customProfs:b.customProfs}],
-   ['Weapon proficiency',{weaponProf:b.weaponProf}],['Weapon masteries',{masteries:b.masteries}],
-   ['Armour',{armour:b.armour}],['Class features',{features:b.features}],['Subclasses',{freeSub:b.freeSub,subAbilities:b.subAbilities,subSpellBundles:b.subSpellBundles}],
-   ['Spellcasting',{traditions:b.traditions,dabblerCantrips:b.dabblerCantrips}],['Arts & Techniques',{arts:b.arts||[]}],['Lineage & racial spells',{lineage:b.lineage||'',racialSpells:b.racialSpells||[]}],['Boons',{boons:b.boons}],['Innate spells',{innate:b.innate}],
-   ['Drawbacks',{drawbacks:b.drawbacks}],
-   ['Attunement',{attune:b.attune}],['Ki & Sorcery points',{ki:b.ki,sorcery:b.sorcery}],['Martially Bound',{martiallyBound:b.martiallyBound}],
-   ['Character size',{size:b.size}],['Starting gold',{gold:b.gold}]];
-  for(const s of steps){const label=s[0],patch=s[1];const before=compute(run).total;Object.assign(run,C(patch));const cost=compute(run).total-before;
+  const emitPatch=(label,patch)=>{const skipZeroCostPatch=label==='Character size' || (label==='Innate spells' && patch && patch.innate && Array.isArray(patch.innate) && patch.innate.every(v=>v===0));
+    if(skipZeroCostPatch)return;
+    const before=compute(run).total;Object.assign(run,C(patch));const cost=compute(run).total-before;
     const meaningful=Object.keys(patch).some(k=>{const v=patch[k];return Array.isArray(v)?v.length:(v&&typeof v==='object'?Object.keys(v).length:(v!==base0[k]));});
-    if(cost!==0||meaningful)ev({type:'buy',cat:'patch',payload:{patch:C(patch)},cost,level:run.hd,label:label+(cost?'':' · 0 AP')});}
+    if(cost!==0||meaningful)ev({type:'buy',cat:'patch',payload:{patch:C(patch)},cost,level:run.hd,label:label+(cost?'':' · 0 AP')});};
+  const evItem=(label,cat,v,fixedCost)=>{const before=compute(run).total;(MUT[cat]||(()=>{}))(run,{v});const cost=(fixedCost!=null?fixedCost:compute(run).total-before);ev({type:'buy',cat,payload:{v},cost,level:run.hd,label});};
+  emitPatch('DM customisations',{houseRules:b.houseRules||{boons:{},draws:{},disabled:{boons:[],draws:[]}}});
+  emitPatch('Origin class — '+b.originClass,{originClass:b.originClass});emitPatch('Second origin class',{originClass2:b.originClass2});
+  emitPatch('Species — '+b.species,{species:b.species});emitPatch('Second origin species',{species2:b.species2});
+  (b.unlockedClasses||[]).forEach(v=>evItem('Class unlocked — '+v,'unlockclass',v));
+  emitPatch('Ability scores',{stats:b.stats});emitPatch('Hit Dice → '+b.hd,{hd:b.hd});emitPatch('Proficiency +'+b.profBonus,{profBonus:b.profBonus});
+  emitPatch('Vigor & Grit',{hardy:b.hardy,tough:b.tough});(b.racialTraits||[]).forEach(v=>evItem('Species trait — '+v,'racial',v));
+  (b.saves||[]).forEach(v=>evItem('Saving throw — '+v,'save',v));(b.skills||[]).forEach(v=>evItem('Skill — '+v,'skill',v));
+  (b.expertise||[]).forEach(v=>evItem('Expertise — '+v,'expertise',v));(b.toolExpertise||[]).forEach(v=>evItem('Tool expertise — '+v,'toolexpertise',v));
+  emitPatch('Languages',{languages:b.languages});
+  const tools=(b.tools||[]),instruments=(b.instruments||[]),customProfs=(b.customProfs||[]);
+  if(customProfs.length)emitPatch('Tools & instruments',{customProfs:C(customProfs)});
+  tools.forEach(v=>evItem('Tool — '+v,'tool',v));instruments.forEach(v=>evItem('Instrument — '+v,'instrument',v));
+  emitPatch('Weapon proficiency',{weaponProf:b.weaponProf});(b.masteries||[]).forEach(v=>evItem('Weapon mastery — '+v,'mastery',v));
+  emitPatch('Armour',{armour:b.armour});(b.features||[]).forEach(v=>evItem('Class feature — '+v,'feature',v));
+  emitPatch('Subclasses',{freeSub:C(b.freeSub||{})});(b.subAbilities||[]).forEach(v=>evItem('Subclass ability — '+v,'subabil',v));(b.subSpellBundles||[]).forEach(v=>evItem('Subclass spell bundle — '+v,'subbundle',v));
+  emitPatch('Spellcasting',{traditions:b.traditions,dabblerCantrips:b.dabblerCantrips});(b.arts||[]).forEach(v=>evItem('Art / Technique — '+v,'art',v));
+  emitPatch('Lineage & racial spells',{lineage:b.lineage||''});(b.racialSpells||[]).forEach(v=>evItem('Racial spell — '+v,'racialspell',v));
+  (b.boons||[]).forEach(v=>evItem('Boon — '+v,'boon',v));emitPatch('Innate spells',{innate:b.innate});
+  (b.drawbacks||[]).forEach(v=>evItem('Drawback — '+v,'drawback',v, -(DATA.drawbacks[v])));
+  emitPatch('Attunement',{attune:b.attune});emitPatch('Ki & Sorcery points',{ki:b.ki,sorcery:b.sorcery});emitPatch('Martially Bound',{martiallyBound:b.martiallyBound});
+  emitPatch('Character size',{size:b.size});emitPatch('Starting gold',{gold:b.gold});
   if(CG_NAMES&&((CG_NAMES.lang&&CG_NAMES.lang.length)||(CG_NAMES.dab&&CG_NAMES.dab.length)||(CG_NAMES.inn&&CG_NAMES.inn.some(function(a){return a&&a.length;}))||(CG_NAMES.tr&&CG_NAMES.tr.length)||(CG_NAMES.grants&&Object.keys(CG_NAMES.grants).length)||(CG_NAMES.feat&&Object.keys(CG_NAMES.feat).length)))ev({type:'names',dab:CG_NAMES.dab||[],inn:CG_NAMES.inn||[[],[],[],[],[],[],[],[],[]],feat:CG_NAMES.feat||{},lang:CG_NAMES.lang||[],grants:CG_NAMES.grants||{},tr:CG_NAMES.tr||[],label:'Named spells & languages'});
   if(b.campaign&&b.campaign.n)ev({type:'buy',cat:'campaign',payload:{v:b.campaign},cost:0,level:1,label:'Campaign rules — '+b.campaign.n});
   return {rules:DATA.version,name:b.name,LOG,SEQ};}

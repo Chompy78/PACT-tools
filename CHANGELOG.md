@@ -11,6 +11,28 @@ Add at the TOP. Format:
 
 ---
 
+- **2026-06-29 · fix — suppress zero-cost non-purchase entries in CharGen→Live Sheet exports** (`DATA.version`
+  stayed **v0.322**; exporter-only fix). The export log now skips non-purchase setup entries like
+  innate-spell defaults and character-size state, so the Live Sheet no longer shows them as if they were
+  bought purchases.
+
+- **2026-06-29 · fix — make CharGen→Live Sheet export create a file again** (`DATA.version`
+  stayed **v0.322**; exporter-only fix). The Live Sheet export button now completes its save/download
+  path successfully by avoiding a broken mutator reference during event-log generation, so CharGen can
+  produce a downloadable Live-Sheet JSON file again.
+
+- **2026-06-29 · fix — make CharGen→Live Sheet export emit native per-item events** (`DATA.version`
+  stayed **v0.322**; `compute()` unchanged; exporter-only change). CharGen export now emits discrete
+  native buy events for boons, drawbacks, skills, saves, expertise, tools, masteries, racial traits,
+  arts, features, subclasses, and other itemized purchases so imported characters behave like native
+  Live-Sheet buys, including drawback buy-off and per-line ledger entries.
+
+- **2026-06-28 · data — apply PHB page numbers and drawback text updates to `js/engine.js`** (`DATA.version`
+  stayed **v0.322**; `compute()` unchanged; display-only data only). Added `page: 214` to the 8 weapon
+  masteries, added PHB `page` values to the 41 listed arts/techniques, and replaced the 10 listed
+  `drawbackFx` strings with the fuller Players Guide wording. Verified `testing/tests/engine-parity.html`
+  reports **5 passed / 0 failed**.
+
 - **2026-06-28 · data — fill PHB page numbers + sync drawback text into `js/engine.js`** (`DATA.version`
   stays **v0.322** — display data only, `compute()` unchanged; engine-parity unaffected). Weapon-mastery
   PHB pages → `DATA.masteryFx[*].page` = **214** (all 8). Arts & Techniques pages → `page` added to **41 of

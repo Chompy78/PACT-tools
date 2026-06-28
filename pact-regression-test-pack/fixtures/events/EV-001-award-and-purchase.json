@@ -1,25 +1,100 @@
 {
-  "baseSnapshot": {},
-  "events": [
-    {
-      "type": "award",
-      "amount": 50,
-      "label": "Award — budget (50 AP)",
-      "seq": 1
-    },
-    {
-      "type": "buy",
-      "cat": "abil",
-      "payload": { "ab": "STR", "to": 12 },
-      "cost": 4,
-      "seq": 21
-    },
-    {
-      "type": "buy",
-      "cat": "hd",
-      "payload": { "to": 3 },
-      "cost": 3,
-      "seq": 19
-    }
-  ]
+ "description": "Event-sourcing fixture: start from a level-1 Rogue, award 20 AP for a quest, then spend it leveling up and buying skills/expertise/abilities. Exercises rebuildStateFromEvents(baseSnapshot, events).",
+ "baseSnapshot": {
+  "name": "Mira Quickfingers",
+  "budget": 50,
+  "originClass": "Rogue",
+  "species": "Human",
+  "stats": {
+   "STR": 10,
+   "DEX": 16,
+   "CON": 12,
+   "INT": 10,
+   "WIS": 12,
+   "CHA": 14
+  },
+  "hd": 1,
+  "profBonus": 2,
+  "saves": [
+   "DEX"
+  ],
+  "skills": [
+   "Stealth",
+   "Acrobatics"
+  ],
+  "tools": [
+   "Thieves' tools"
+  ],
+  "weaponProf": {
+   "simple": true
+  },
+  "armour": {
+   "light": true
+  },
+  "inPlay": true
+ },
+ "events": [
+  {
+   "type": "award",
+   "amount": 20,
+   "note": "Cleared the Sunken Crypt",
+   "label": "Award — Cleared the Sunken Crypt (20 AP)"
+  },
+  {
+   "type": "buy",
+   "cat": "hd",
+   "payload": {
+    "to": 2
+   },
+   "cost": 2,
+   "level": 2,
+   "label": "Level up → Hit Die 2"
+  },
+  {
+   "type": "buy",
+   "cat": "skill",
+   "payload": {
+    "v": "Perception"
+   },
+   "cost": 1,
+   "level": 2,
+   "label": "Skill — Perception"
+  },
+  {
+   "type": "buy",
+   "cat": "expertise",
+   "payload": {
+    "v": "Stealth"
+   },
+   "cost": 3,
+   "level": 2,
+   "label": "Expertise — Stealth"
+  },
+  {
+   "type": "buy",
+   "cat": "abil",
+   "payload": {
+    "ab": "DEX",
+    "to": 18
+   },
+   "cost": 10,
+   "level": 2,
+   "label": "DEX 16→18"
+  },
+  {
+   "type": "buy",
+   "cat": "save",
+   "payload": {
+    "v": "CON"
+   },
+   "cost": 8,
+   "level": 2,
+   "label": "Saving throw — CON"
+  },
+  {
+   "type": "name",
+   "name": "Mira Quickfingers",
+   "label": "Name — Mira Quickfingers"
+  }
+ ]
 }

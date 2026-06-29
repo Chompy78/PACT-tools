@@ -304,6 +304,10 @@ button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-vis
 }
 @media(max-width:600px){
  body{font-size:14px}
+ /* M5: name+AP row inside stickyhead — stickyhead keeps position:sticky (works on Android); no fixed needed */
+ #mtop{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 12px;background:var(--navy);color:#fff;border-bottom:2px solid rgba(255,255,255,0.25)}
+ #mtop b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}
+ /* M7: jump-to-section dropdown replaces the chip strip on phones */
  .secnav{display:none}
  /* collapsible summary details (Guide / stats / ledger) */
  .sumtoggle{display:inline-block;width:100%;margin:6px 0 2px}
@@ -379,10 +383,8 @@ button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-vis
 .gridck label.ck > input[type=checkbox]:disabled + * { opacity: 0.5; }
 .gridck label.ck:has(> input:disabled) { opacity: 0.5; cursor: default; }
 </style></head><body>
-<div class="stickyhead">
-<div class="hd-row1"><b id="mtop-name">—</b><span id="mtop-tot" style="background:#CDEAD3;color:#14501f;padding:2px 9px;border-radius:10px;font-weight:800;font-size:13px;white-space:nowrap;flex-shrink:0">—</span><span id="mtop-warn" style="display:none;color:#f7c5c5;font-size:14px;font-weight:800;flex-shrink:0" title="Build has issues">⚠</span></div>
-<div class="hd-row2"><h1 class="hd-title">PACT — Character Generator</h1><span class="sub">Web Tool · v0.309 · live</span><span class="hd-pactver">PACT Rules v0.309</span><span class="lastedited">Last edited 2026-06-28 23:10</span></div>
-<div class="hd-row3"><button class="btn ghost" onclick="saveBuild()" title="Save this character to a JSON file you can re-open with Load. Supported browsers let you pick where; otherwise it goes to your Downloads (iOS: opens to Share → Save to Files).">💾 Save</button>
+<div class="stickyhead"><div id="mtop"><b id="mtop-name">—</b><span id="mtop-tot" style="background:#CDEAD3;color:#14501f;padding:2px 9px;border-radius:10px;font-weight:800;font-size:13px;white-space:nowrap;flex-shrink:0">—</span></div><div class="topbar"><h1>PACT — Character Generator</h1><span class="sub">Web Tool · v0.309 · live</span><span class="lastedited">Last edited 2026-06-28 23:10</span>
+<button class="btn ghost" onclick="saveBuild()" title="Save this character to a JSON file you can re-open with Load. Supported browsers let you pick where; otherwise it goes to your Downloads (iOS: opens to Share → Save to Files).">💾 Save</button>
 <button class="btn ghost" onclick="loadViaPicker()">📂 Load</button>
 <input type="file" id="loadfile" accept=".json,application/json" style="display:none" onchange="if(this.files[0]){_fileHandle=null;loadFile(this.files[0]);}this.value='';">
 <button class="btn ghost" onclick="toggleSheet()">📋 Sheet</button>

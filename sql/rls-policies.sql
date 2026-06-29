@@ -1,0 +1,145 @@
+-- PACT — Row-Level Security policies
+-- Apply AFTER schema.sql. Safe to re-run (drops policies first).
+--
+-- Guarantees enforced here (not just in client JS):
+--   * A user reads/writes only their own characters.
+--   * Players can NEVER write characters.xp — enforced by a column-level GRANT,
+--     not a policy, because Postgres RLS cannot restrict an UPDATE to columns.
+--     The only xp write path is award_xp(), which checks the caller is the DM.
+--   * Only a campaign's DM can write campaign rows or award xp.
+--   * Campaign + profile reads are scoped to people you share a campaign with.
+--
+-- Recursion note: a policy subquery against another table is itself subject to
+-- that table's RLS. campaigns<->characters policies would recurse forever, so
+-- the cross-table checks live in SECURITY DEFINER helpers that bypass RLS.
+
+-- ---------------------------------------------------------------------------
+-- Helpers (SECURITY DEFINER — run as owner, bypass RLS, break recursion)
+-- ---------------------------------------------------------------------------
+create or replace function public.is_campaign_dm(p_campaign uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1 from campaigns where id = p_campaign and dm_id = auth.uid()
+  );
+$$;
+
+create or replace function public.is_campaign_member(p_campaign uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    select 1 from characters where campaign_id = p_campaign and owner_id = auth.uid()
+  );
+$$;
+
+-- True if auth.uid() and p_other share any campaign (either as DM or player).
+create or replace function public.shares_campaign(p_other uuid)
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (
+    -- I DM a campaign p_other plays in
+    select 1 from campaigns c join characters ch on ch.campaign_id = c.id
+      where c.dm_id = auth.uid() and ch.owner_id = p_other
+    union all
+    -- p_other DMs a campaign I play in
+    select 1 from campaigns c join characters ch on ch.campaign_id = c.id
+      where c.dm_id = p_other and ch.owner_id = auth.uid()
+    union all
+    -- we both play in the same campaign
+    select 1 from characters a join characters b on a.campaign_id = b.campaign_id
+      where a.owner_id = auth.uid() and b.owner_id = p_other
+  );
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Enable RLS
+-- ---------------------------------------------------------------------------
+alter table public.profiles   enable row level security;
+alter table public.campaigns  enable row level security;
+alter table public.characters enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- profiles
+-- ---------------------------------------------------------------------------
+drop policy if exists profiles_select on public.profiles;
+create policy profiles_select on public.profiles
+  for select using (id = auth.uid() or shares_campaign(id));
+
+drop policy if exists profiles_insert on public.profiles;
+create policy profiles_insert on public.profiles
+  for insert with check (id = auth.uid());   -- normally done by the signup trigger
+
+drop policy if exists profiles_update on public.profiles;
+create policy profiles_update on public.profiles
+  for update using (id = auth.uid()) with check (id = auth.uid());
+
+-- ---------------------------------------------------------------------------
+-- campaigns
+-- ---------------------------------------------------------------------------
+drop policy if exists campaigns_select on public.campaigns;
+create policy campaigns_select on public.campaigns
+  for select using (dm_id = auth.uid() or is_campaign_member(id));
+
+drop policy if exists campaigns_insert on public.campaigns;
+create policy campaigns_insert on public.campaigns
+  for insert with check (dm_id = auth.uid());
+
+drop policy if exists campaigns_update on public.campaigns;
+create policy campaigns_update on public.campaigns
+  for update using (dm_id = auth.uid()) with check (dm_id = auth.uid());
+
+drop policy if exists campaigns_delete on public.campaigns;
+create policy campaigns_delete on public.campaigns
+  for delete using (dm_id = auth.uid());
+
+-- ---------------------------------------------------------------------------
+-- characters
+-- ---------------------------------------------------------------------------
+drop policy if exists characters_select on public.characters;
+create policy characters_select on public.characters
+  for select using (owner_id = auth.uid() or is_campaign_dm(campaign_id));
+
+drop policy if exists characters_insert on public.characters;
+create policy characters_insert on public.characters
+  for insert with check (owner_id = auth.uid());
+
+-- Players update their own character. The xp column is NOT in the GRANT below,
+-- so even though this policy passes, an attempt to write xp is rejected.
+drop policy if exists characters_update on public.characters;
+create policy characters_update on public.characters
+  for update using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+drop policy if exists characters_delete on public.characters;
+create policy characters_delete on public.characters
+  for delete using (owner_id = auth.uid() or is_campaign_dm(campaign_id));
+
+-- ---------------------------------------------------------------------------
+-- Column-level xp lockdown — the real xp guard.
+-- Strip blanket UPDATE, then grant UPDATE only on the player-writable columns.
+-- xp is deliberately excluded; it can change ONLY through award_xp().
+-- ---------------------------------------------------------------------------
+revoke update on public.characters from authenticated, anon;
+grant update (name, campaign_id, kind, stats) on public.characters to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- award_xp(character, amount) — the ONLY xp write path. DM-only, runs as
+-- definer so it can write the column players have no grant on. Adds to xp
+-- (pass a negative amount to deduct) and returns the new total.
+-- ---------------------------------------------------------------------------
+create or replace function public.award_xp(p_character uuid, p_amount integer)
+returns integer language plpgsql security definer set search_path = public as $$
+declare
+  v_campaign uuid;
+  v_xp       integer;
+begin
+  select campaign_id into v_campaign from characters where id = p_character;
+  if v_campaign is null then
+    raise exception 'Character is not in a campaign';
+  end if;
+  if not is_campaign_dm(v_campaign) then
+    raise exception 'Only the campaign DM can award xp';
+  end if;
+
+  update characters set xp = xp + p_amount
+    where id = p_character
+    returning xp into v_xp;
+  return v_xp;
+end;
+$$;

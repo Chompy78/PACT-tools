@@ -1,20 +1,20 @@
-// PACT — DM-side operations: read the campaign roster and award XP.
+// PACT — DM-side operations: read the campaign roster and award AP.
 //
-// Awarding XP goes through the award_xp() RPC, the ONLY write path to
-// characters.xp (players have no column grant on it). The RPC itself checks the
+// Awarding AP goes through the award_ap() RPC, the ONLY write path to
+// characters.ap (players have no column grant on it). The RPC itself checks the
 // caller is the campaign's DM, so this is safe even if called directly.
 
 import { supabase } from './supabase-client.js';
 
 /**
  * Roster for a campaign: every character in it with its player's display name
- * and current XP. The DM can read this via RLS; players cannot read others'.
- * @returns {Promise<Array<{id,name,kind,xp,updated_at,owner_id,player}>>}
+ * and current AP. The DM can read this via RLS; players cannot read others'.
+ * @returns {Promise<Array<{id,name,kind,ap,updated_at,owner_id,player}>>}
  */
 export async function getRoster(campaignId) {
   const { data, error } = await supabase
     .from('characters')
-    .select('id, name, kind, xp, updated_at, owner_id, owner:profiles(display_name)')
+    .select('id, name, kind, ap, updated_at, owner_id, owner:profiles(display_name)')
     .eq('campaign_id', campaignId)
     .order('name');
   if (error) throw error;
@@ -22,7 +22,7 @@ export async function getRoster(campaignId) {
     id: c.id,
     name: c.name,
     kind: c.kind,
-    xp: c.xp,
+    ap: c.ap,
     updated_at: c.updated_at,
     owner_id: c.owner_id,
     player: c.owner?.display_name || '',
@@ -30,11 +30,11 @@ export async function getRoster(campaignId) {
 }
 
 /**
- * DM-only: add (or, with a negative amount, deduct) XP for a character.
- * Returns the new XP total. Throws if the caller is not the campaign's DM.
+ * DM-only: add (or, with a negative amount, deduct) AP for a character.
+ * Returns the new AP total. Throws if the caller is not the campaign's DM.
  */
-export async function awardXp(characterId, amount) {
-  const { data, error } = await supabase.rpc('award_xp', {
+export async function awardAp(characterId, amount) {
+  const { data, error } = await supabase.rpc('award_ap', {
     p_character: characterId,
     p_amount: amount,
   });
@@ -50,7 +50,7 @@ export async function awardXp(characterId, amount) {
 export async function getCharacterStats(characterId) {
   const { data, error } = await supabase
     .from('characters')
-    .select('id, name, kind, stats, xp')
+    .select('id, name, kind, stats, ap')
     .eq('id', characterId)
     .single();
   if (error) throw error;

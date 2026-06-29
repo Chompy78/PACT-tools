@@ -4,8 +4,8 @@
 // retry buffer. Rules (see docs/PWA-BUILD-PLAN.md Task 3):
 //   * Only RAW character data is stored: characters.stats holds the CharGen build
 //     JSON or the Live Sheet { LOG, SEQ, rules } event log. Never derived stats.
-//   * xp is ALWAYS server-authoritative. We never send xp on a push, and a pull
-//     always overwrites the local xp with the server's value.
+//   * ap is ALWAYS server-authoritative. We never send ap on a push, and a pull
+//     always overwrites the local ap with the server's value.
 //   * Last-write-wins by updated_at; we only push local when it's newer AND dirty.
 //   * A failed write keeps the local copy (dirty) and retries on the next "online"
 //     event or syncAll(); local is never deleted until a server write is confirmed.
@@ -42,7 +42,7 @@ function lsRemove(id) {
 
 /**
  * Save a character. Writes localStorage immediately (offline-safe), then tries
- * to push to Supabase. xp is never sent — it stays whatever the server holds.
+ * to push to Supabase. ap is never sent — it stays whatever the server holds.
  * @returns {Promise<{id:string, synced:boolean, error?:Error}>}
  */
 export async function saveCharacter({ id, name, kind, stats }) {
@@ -53,7 +53,7 @@ export async function saveCharacter({ id, name, kind, stats }) {
     name: name ?? prev?.name ?? 'New Character',
     kind: kind ?? prev?.kind ?? 'livesheet',
     stats: stats ?? prev?.stats ?? {},
-    xp: prev?.xp ?? 0,            // display-only mirror of the server value
+    ap: prev?.ap ?? 0,            // display-only mirror of the server value
     updated_at: nowIso(),
     dirty: true,
   };
@@ -65,13 +65,13 @@ export async function saveCharacter({ id, name, kind, stats }) {
 }
 
 /** Push one local record to Supabase. Insert if new, else update the writable
- *  columns only (owner_id/xp are intentionally never sent on update). */
+ *  columns only (owner_id/ap are intentionally never sent on update). */
 async function pushCharacter(rec) {
   const { data: upd, error: updErr } = await supabase
     .from('characters')
     .update({ name: rec.name, kind: rec.kind, stats: rec.stats })
     .eq('id', rec.id)
-    .select('id, updated_at, xp');
+    .select('id, updated_at, ap');
   if (updErr) throw updErr;
 
   if (upd && upd.length) {
@@ -85,14 +85,14 @@ async function pushCharacter(rec) {
   const { data: ins, error: insErr } = await supabase
     .from('characters')
     .insert({ id: rec.id, owner_id: user.id, name: rec.name, kind: rec.kind, stats: rec.stats })
-    .select('id, updated_at, xp');
+    .select('id, updated_at, ap');
   if (insErr) throw insErr;
   applyServerMeta(rec, ins[0]);
 }
 
 function applyServerMeta(rec, server) {
   rec.updated_at = server.updated_at;
-  rec.xp = server.xp;     // server is authoritative for xp
+  rec.ap = server.ap;     // server is authoritative for ap
   rec.dirty = false;
   lsSet(rec);
 }
@@ -105,12 +105,12 @@ export async function loadCharacter(id) {
   return lsGet(id);
 }
 
-/** Reconcile a single id between local and server (last-write-wins; xp = server). */
+/** Reconcile a single id between local and server (last-write-wins; ap = server). */
 async function reconcile(id) {
   const local = lsGet(id);
   const { data: server, error } = await supabase
     .from('characters')
-    .select('id, name, kind, stats, xp, updated_at')
+    .select('id, name, kind, stats, ap, updated_at')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
@@ -126,7 +126,7 @@ async function reconcile(id) {
   if (localNewer) {
     try { await pushCharacter(local); } catch { /* retry later */ }
   } else {
-    // Server wins: take its stats AND its xp.
+    // Server wins: take its stats AND its ap.
     lsSet({ ...server, dirty: false });
   }
 }
@@ -137,7 +137,7 @@ export async function listCharacters() {
   if (navigator.onLine && await currentUser()) {
     const { data, error } = await supabase
       .from('characters')
-      .select('id, name, kind, xp, updated_at')
+      .select('id, name, kind, ap, updated_at')
       .order('updated_at', { ascending: false });
     if (error) throw error;
     const serverIds = new Set(data.map(c => c.id));

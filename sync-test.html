@@ -60,7 +60,7 @@
         <button id="syncBtn" class="ghost">Sync now</button>
       </div>
       <table>
-        <thead><tr><th>name</th><th>kind</th><th>xp</th><th>updated</th><th>id</th></tr></thead>
+        <thead><tr><th>name</th><th>kind</th><th>ap</th><th>updated</th><th>id</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </fieldset>
@@ -115,7 +115,7 @@
       const rec = await loadCharacter(id);
       if (!rec) { log('no such character'); return; }
       $('cname').value = rec.name; $('cstats').value = JSON.stringify(rec.stats);
-      log(`loaded ${id} (xp=${rec.xp}, ${rec.dirty ? 'dirty' : 'clean'})`);
+      log(`loaded ${id} (ap=${rec.ap}, ${rec.dirty ? 'dirty' : 'clean'})`);
     };
 
     $('listBtn').onclick = refresh;
@@ -125,7 +125,7 @@
       try {
         const list = await listCharacters();
         $('rows').innerHTML = list.map(c =>
-          `<tr><td>${c.name ?? ''}</td><td>${c.kind ?? ''}</td><td>${c.xp ?? 0}</td>`
+          `<tr><td>${c.name ?? ''}</td><td>${c.kind ?? ''}</td><td>${c.ap ?? 0}</td>`
           + `<td>${(c.updated_at||'').slice(0,19).replace('T',' ')}</td><td><code>${c.id.slice(0,8)}…</code></td></tr>`
         ).join('') || '<tr><td colspan="5" style="color:#64748b">none</td></tr>';
       } catch (e) { log('list error: ' + e.message); }

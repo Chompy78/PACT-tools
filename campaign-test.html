@@ -59,7 +59,7 @@
     <fieldset id="rosterBox" style="display:none">
       <legend>Roster — <span id="rosterName"></span></legend>
       <table>
-        <thead><tr><th>player</th><th>character</th><th>xp</th><th>award</th></tr></thead>
+        <thead><tr><th>player</th><th>character</th><th>ap</th><th>award</th></tr></thead>
         <tbody id="rosterRows"></tbody>
       </table>
     </fieldset>
@@ -70,7 +70,7 @@
   <script type="module">
     import { currentUser } from './js/auth.js';
     import { createCampaign, joinCampaign, regenerateInviteCode, listMyCampaigns, getCampaign } from './js/campaign.js';
-    import { getRoster, awardXp } from './js/dm.js';
+    import { getRoster, awardAp } from './js/dm.js';
 
     const $ = id => document.getElementById(id);
     const log = m => { $('log').textContent = '› ' + m + '\n' + $('log').textContent; };
@@ -129,7 +129,7 @@
           <tr>
             <td>${r.player || '—'}</td>
             <td>${r.name}</td>
-            <td><b>${r.xp}</b></td>
+            <td><b>${r.ap}</b></td>
             <td class="row" style="margin:0">
               <input type="number" value="10" style="width:4rem" data-amt="${r.id}">
               <button data-award="${r.id}">Award</button>
@@ -137,7 +137,7 @@
           </tr>`).join('') || '<tr><td colspan="4" style="color:#64748b">no players yet</td></tr>';
         document.querySelectorAll('[data-award]').forEach(b => b.onclick = async () => {
           const amt = parseInt(document.querySelector(`[data-amt="${b.dataset.award}"]`).value, 10) || 0;
-          try { const xp = await awardXp(b.dataset.award, amt); log(`awarded ${amt} → new xp ${xp}`); showRoster(id, name); }
+          try { const ap = await awardAp(b.dataset.award, amt); log(`awarded ${amt} → new ap ${ap}`); showRoster(id, name); }
           catch (e) { log('award error: ' + e.message); }
         });
       } catch (e) { log('roster error: ' + e.message); }

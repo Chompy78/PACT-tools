@@ -1,9 +1,15 @@
-const CACHE_NAME = 'pact-v1';
+const CACHE_NAME = 'pact-v2';
 
 const PRE_CACHE = [
   '/PACT/',
   '/PACT/index.html',
+  '/PACT/login.html',
   '/PACT/js/engine.js',
+  '/PACT/js/supabase-client.js',
+  '/PACT/js/auth.js',
+  '/PACT/js/sync.js',
+  '/PACT/js/campaign.js',
+  '/PACT/js/dm.js',
   '/PACT/manifest.json',
   '/PACT/tools/PACT-CharGen-Webtool.html',
   '/PACT/tools/PACT-Live-Char-Sheet.html',
@@ -27,7 +33,6 @@ self.addEventListener('install', e => {
       )
     )
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {

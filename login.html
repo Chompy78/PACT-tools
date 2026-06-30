@@ -138,6 +138,20 @@
 
     $('logoutBtn').onclick = async () => { await logout(); showSignedOut(); };
 
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/PACT/service-worker.js').then(function (reg) {
+        reg.addEventListener('updatefound', function () {
+          var sw = reg.installing;
+          sw.addEventListener('statechange', function () {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              sw.postMessage('skipWaiting');
+              location.reload();
+            }
+          });
+        });
+      });
+    }
+
     // Reflect the current session on load and on any auth change.
     onAuthChange((event) => { if (event === 'SIGNED_OUT') showSignedOut(); });
     (async () => { if (await currentUser()) showSignedIn(); else showSignedOut(); })();

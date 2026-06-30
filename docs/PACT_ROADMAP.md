@@ -14,7 +14,7 @@
 > pointers resolve. Findings are filed by severity: HIGH → Now, MEDIUM → Next, LOW → Later.
 
 Completed work (PWA shell, auth, cloud sync, campaigns, hardening, landing-page redesign, PHB data,
-**REV-01** regression gate, **REV-02** SW same-origin cache fix) has landed and graduated to `CHANGELOG.md`.
+**REV-01** regression gate, **REV-02** SW same-origin cache fix, **REV-03** SW network-first) has landed and graduated to `CHANGELOG.md`.
 Review findings **REV-08** (docs drift) and **REV-09** (scratch file) will be closed by the
 **still-pending CU-1 / CU-3** tasks below — not done yet.
 
@@ -24,29 +24,6 @@ Review findings **REV-08** (docs drift) and **REV-09** (scratch file) will be cl
 
 > **Quick win first:** CU-1 and CU-2 are ready-to-commit files — knock those out immediately. The HIGH
 > fixes (REV-01…04) are the priority work in this bucket.
-
-## REV-03 — Service worker: network-first for app shell + engine (HIGH) — TODO
-`js/engine.js` is served cache-first from a static `CACHE_NAME`, so a shipped rules fix never reaches
-returning users until the SW's own bytes change.
-```
-Network-first (or stale-while-revalidate) for *.html + js/engine.js, falling back to cache offline;
-cache-first only for content-addressed static assets (icons). Optionally derive CACHE_NAME from BUILD
-so activate purges old caches each release. Log the choice in DECISIONS.md.
-```
-**Done when:** editing only `js/engine.js`, deploying, and reloading an installed PWA serves the NEW
-engine without clearing storage; offline still loads. (Full detail: REV-03.)
-
-## REV-04 — Close the campaign-join bypass in RLS (HIGH) — TODO
-`campaign_id` is in the player update grant + the insert policy only checks ownership, so a player can set
-`campaign_id` directly, skipping `join_campaign()`. *(Re-verify against the current D-GH7 RLS first — it
-may have shifted.)*
-```
-Preferred: remove campaign_id from the player update grant; make join_campaign() (SECURITY DEFINER) the
-sole writer of campaign_id; add a leave-campaign RPC if needed. Alt: constrain insert/update with
-WITH CHECK (campaign_id is null or is_campaign_member(campaign_id)).
-```
-**Done when:** a manual insert/update setting `campaign_id` to an un-joined campaign is rejected;
-`join_campaign(valid_code)` still works and still blocks double-joins. (Full detail: REV-04.)
 
 ## CU-1 — Single-source agent docs — TODO  *(closes review REV-08)*
 Files provided — just commit: overwrite `AGENTS.md`; replace `CLAUDE.md` with the `@AGENTS.md` stub and
@@ -241,6 +218,19 @@ Branch feat/theme-random-artwork. Add theme-specific image pools to index.html a
 - Keep all logic inside index.html (or a dedicated UI helper JS file if one already exists); no engine changes.
 - display-only — do NOT bump DATA.version; just log in CHANGELOG.
 - Engine is the single source of truth. All rules live in js/engine.js; do not add rules logic outside the engine.
+```
+
+---
+
+## Standardise CharGen toolbar spacing — TODO
+Branch fix-toolbar-gap. Remove inconsistent spacing between Campaign and Live Sheet in the CharGen toolbar so all toolbar buttons use the same gap and alignment.
+
+```text
+Review the CharGen toolbar HTML/CSS.
+Identify any custom margin, spacer, flex rule, or grouping that creates extra space between Campaign and Live Sheet.
+Refactor so toolbar button spacing is controlled by the shared toolbar layout only.
+Do not change button order, labels, sizing, or functionality.
+Display-only — do NOT bump DATA.version; just log in CHANGELOG.
 ```
 
 ---

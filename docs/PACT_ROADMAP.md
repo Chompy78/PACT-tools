@@ -97,11 +97,6 @@ Delete (merged into preview): `data/tools-v0.332`, `engine/data-v0.332`, `featur
 `preview`, `task2/auth-gate`.
 **Done when:** `git branch` shows only `main`, `preview`, `task2/auth-gate` (+ anything active).
 
-## CU-5 — Fix duplicate `D-GH7` in DECISIONS.md — TODO
-Two entries share `D-GH7`. Renumber the OLDER (PWA service-worker) one to `D-GH8`; leave campaign-play
-`D-GH7` (referenced by `js/campaign.js` + `CHANGELOG.md`).
-**Done when:** each `D-GH#` appears once; no reference orphaned.
-
 ## CU-6 — (optional) Rename `DM Console.html` → `DM-Console.html` — TODO
 Drop the space; update index menu link, SW precache, and any other references.
 **Done when:** nothing references "DM Console.html"; console opens + is precached; parity 5/0.

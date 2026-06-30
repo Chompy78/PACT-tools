@@ -411,7 +411,7 @@
       <div class="ptitle">Campaign (cloud)</div>
       <div id="campAuthRow">
         <span id="campWho">Not signed in</span>
-        <a class="btn sm ghost" href="../login.html" id="campSignInBtn">Sign in</a>
+        <a class="btn sm" href="../login.html" id="campSignInBtn">Sign in</a>
       </div>
       <div id="campControls" style="display:none">
         <select id="campSel"><option value="">— select campaign —</option></select>
@@ -1546,9 +1546,9 @@ document.addEventListener('campaign-ready', function () {
   }
 
   async function loadCampaigns(){
-    var res = await B.listMyCampaigns();
-    if(res.error) return;
-    currentCampaigns = (res.data||[]).filter(function(c){ return c.isDm||c.isOwner; });
+    var camps;
+    try { camps = await B.listMyCampaigns(); } catch(err){ console.error('listMyCampaigns:', err); return; }
+    currentCampaigns = (camps||[]).filter(function(c){ return c.isDm||c.isOwner; });
     var prev = campSel.value;
     campSel.innerHTML = '<option value="">— select campaign —</option>';
     currentCampaigns.forEach(function(c){
@@ -1565,12 +1565,14 @@ document.addEventListener('campaign-ready', function () {
     currentCampId = id;
     var camp = currentCampaigns.find(function(c){return c.id===id;});
     if(!camp){ campCodes.style.display='none'; campSection.style.display='none'; return; }
-    campCodes.style.display = '';
+    campCodes.style.display = 'block';
     document.getElementById('campPlayerCode').value = camp.invite_code||'';
     document.getElementById('campDmCode').value     = camp.dm_invite_code||'';
     ignoreChk.checked = !!camp.ignore_player_ap;
-    campSection.style.display = '';
+    campSection.style.display = 'block';
     campRosterName.textContent = camp.name;
+    var emptyEl = document.getElementById('empty');
+    if(emptyEl) emptyEl.style.display = 'none';
     loadRoster(id);
   }
 
@@ -1592,15 +1594,14 @@ document.addEventListener('campaign-ready', function () {
 
   async function loadRoster(campId){
     campRoster.innerHTML = '<div class="camp-empty">Loading…</div>';
-    var res = await B.getRoster(campId);
-    if(res.error){ campRoster.innerHTML='<div class="camp-empty">Error: '+esc(res.error.message)+'</div>'; return; }
-    var rows = res.data||[];
-    if(!rows.length){ campRoster.innerHTML='<div class="camp-empty">No characters in this campaign yet.</div>'; return; }
+    var rows;
+    try { rows = await B.getRoster(campId); } catch(err){ campRoster.innerHTML='<div class="camp-empty">Error: '+esc(err.message)+'</div>'; return; }
+    if(!rows||!rows.length){ campRoster.innerHTML='<div class="camp-empty">No characters in this campaign yet.</div>'; return; }
     var html = '<table><thead><tr><th>Player</th><th>Character</th><th>DM AP</th><th>Award AP</th><th>History</th></tr></thead><tbody>';
     rows.forEach(function(row){
       var cid  = row.id;
-      var cname = (row.stats&&row.stats.name)||row.id.slice(0,8);
-      var pname = (row.profiles&&row.profiles.display_name)||row.user_id.slice(0,8);
+      var cname = row.name||row.id.slice(0,8);
+      var pname = row.player||row.owner_id.slice(0,8);
       var ap = row.ap||0;
       html += '<tr data-cid="'+esc(cid)+'">' +
         '<td>'+esc(pname)+'</td>' +
@@ -1624,9 +1625,9 @@ document.addEventListener('campaign-ready', function () {
         var note= tr.querySelector('.award-note').value.trim();
         if(amt===0){ alert('Enter a non-zero amount.'); return; }
         btn.disabled = true;
-        var res = await B.awardAp(btn.dataset.cid, amt, note);
+        try { await B.awardAp(btn.dataset.cid, amt, note); }
+        catch(err){ btn.disabled=false; alert('Award failed: '+err.message); return; }
         btn.disabled = false;
-        if(res.error){ alert('Award failed: '+res.error.message); return; }
         tr.querySelector('.award-amt').value = 0;
         tr.querySelector('.award-note').value = '';
         loadRoster(campId);
@@ -1635,12 +1636,11 @@ document.addEventListener('campaign-ready', function () {
 
     campRoster.querySelectorAll('.hist-btn').forEach(function(btn){
       btn.addEventListener('click', async function(){
-        var res = await B.getAwardHistory(btn.dataset.cid);
-        if(res.error){ alert('Error: '+res.error.message); return; }
-        var data = res.data||[];
-        var trows = data.map(function(r){
+        var data;
+        try { data = await B.getAwardHistory(btn.dataset.cid); } catch(err){ alert('Error: '+err.message); return; }
+        var trows = (data||[]).map(function(r){
           var amt = r.amount>0?'+'+r.amount:r.amount;
-          var dm  = (r.profiles&&r.profiles.display_name)||'DM';
+          var dm  = r.dm||'DM';
           var ts  = (r.created_at||'').slice(0,16).replace('T',' ');
           return '<tr><td>'+esc(ts)+'</td><td><b>'+amt+'</b></td><td>'+esc(dm)+'</td><td>'+esc(r.note||'')+'</td></tr>';
         }).join('');

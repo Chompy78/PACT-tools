@@ -14,9 +14,9 @@
 > pointers resolve. Findings are filed by severity: HIGH → Now, MEDIUM → Next, LOW → Later.
 
 Completed work (PWA shell, auth, cloud sync, campaigns, hardening, landing-page redesign, PHB data,
-**REV-01** regression gate) has landed and graduated to `CHANGELOG.md`. Review findings **REV-08**
-(docs drift) and **REV-09** (scratch file) will be closed by the **still-pending CU-1 / CU-3** tasks
-below — not done yet.
+**REV-01** regression gate, **REV-02** SW same-origin cache fix) has landed and graduated to `CHANGELOG.md`.
+Review findings **REV-08** (docs drift) and **REV-09** (scratch file) will be closed by the
+**still-pending CU-1 / CU-3** tasks below — not done yet.
 
 ---
 
@@ -212,6 +212,19 @@ column lock) and (b) setting campaign_id to a campaign never joined (proves REV-
 **Done when:** runs clean on a healthy tree and fails loudly on a planted break (a missing PRE_CACHE file,
 or a player REST write to `ap` that succeeds). Pairs with REV-01/REV-11 — engine-parity joins CI once
 REV-01 makes the gate assert.
+
+## Feature: Theme-aware random homepage artwork — TODO
+Branch feat/theme-random-artwork. Add theme-specific image pools to index.html and randomly select a matching image on page load and theme change.
+
+```text
+- Add separate image pools for light and dark themes (e.g. assets/themes/light/* and assets/themes/dark/*).
+- Detect the active theme from the existing theme system.
+- On page load, randomly select one image from the active theme pool and apply it to the homepage artwork/banner element.
+- Re-roll the image when the user switches theme so light mode always uses a light image and dark mode always uses a dark image.
+- Keep all logic inside index.html (or a dedicated UI helper JS file if one already exists); no engine changes.
+- display-only — do NOT bump DATA.version; just log in CHANGELOG.
+- Engine is the single source of truth. All rules live in js/engine.js; do not add rules logic outside the engine.
+```
 
 ---
 

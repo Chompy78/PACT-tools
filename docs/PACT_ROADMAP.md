@@ -28,22 +28,6 @@ prune) has landed and graduated to `CHANGELOG.md`.
 
 # 🟡 NEXT — medium-severity fixes + remaining build work
 
-## REV-05 — Sync: compare parsed instants, not strings (MEDIUM) — TODO
-`js/sync.js:125` does `local.updated_at > server.updated_at` — breaks across `Z` vs `+00:00` / differing
-precision, causing lost updates.
-```
-const localNewer = local.dirty && Date.parse(local.updated_at) > Date.parse(server.updated_at);
-```
-**Done when:** mixed-format timestamps order correctly; add a unit test. (Full detail: REV-05.)
-
-## REV-06 — Offline delete: tombstones so it stays deleted (MEDIUM) — TODO
-Offline, `deleteCharacter` removes local but not server, so the row re-pulls on reconnect.
-```
-Maintain a pact-deletes tombstone list; syncAll/online handler replays delete().eq('id',…) then clears
-it; listCharacters filters out tombstoned ids so they don't reappear.
-```
-**Done when:** delete offline → stays gone in UI; on reconnect server row is removed, never re-pulled.
-(Full detail: REV-06.)
 
 ## REV-07 — Invite codes from a CSPRNG (MEDIUM) — TODO
 `gen_invite_code` uses `floor(random()*36)` (non-CSPRNG), no throttling.
@@ -173,19 +157,6 @@ Branch feat/theme-random-artwork. Add theme-specific image pools to index.html a
 - Keep all logic inside index.html (or a dedicated UI helper JS file if one already exists); no engine changes.
 - display-only — do NOT bump DATA.version; just log in CHANGELOG.
 - Engine is the single source of truth. All rules live in js/engine.js; do not add rules logic outside the engine.
-```
-
----
-
-## Standardise CharGen toolbar spacing — TODO
-Branch fix-toolbar-gap. Remove inconsistent spacing between Campaign and Live Sheet in the CharGen toolbar so all toolbar buttons use the same gap and alignment.
-
-```text
-Review the CharGen toolbar HTML/CSS.
-Identify any custom margin, spacer, flex rule, or grouping that creates extra space between Campaign and Live Sheet.
-Refactor so toolbar button spacing is controlled by the shared toolbar layout only.
-Do not change button order, labels, sizing, or functionality.
-Display-only — do NOT bump DATA.version; just log in CHANGELOG.
 ```
 
 ---

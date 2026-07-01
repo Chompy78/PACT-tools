@@ -307,6 +307,32 @@ Note: this overlaps with the existing "Externalize CharGen default AP + AP-by-le
 
 ---
 
+## Expand engine-parity test coverage — TODO
+Branch test/expand-engine-parity-coverage. `testing/tests/engine-parity.html` currently runs only 5 fixtures (CG-001/002/003, EV-001, LS-001) — budget/empty/over-budget cases only. No coverage of prereq gates, drawback buy-off, racial/mastery pricing, multi-tradition spellcasting paths, or Live Sheet event-log folding beyond the one clean-export case. Before REV-11 (CI) and REV-14 (engine refactor) can trust this gate, it needs to actually prove `compute()` correctness broadly, not just that it doesn't throw.
+
+```text
+1. Audit current fixture coverage against js/engine.js's compute() branches — grep for gates/prereqs/discounts
+   the 5 existing fixtures never exercise (e.g. drawback buy-off, racial discount stacking, invalid
+   prereq purchase, duplicate/cap rejection, HD/AP-by-level edges).
+2. Add new fixtures under testing/fixtures/builds/ and testing/fixtures/live-sheets/ (and events/ if needed)
+   for the highest-value gaps found in step 1 — prioritize cases most likely to silently break during
+   future engine edits (REV-14 split, Task 6 CharGen migration, Feature A multi-tradition work).
+3. Add each new fixture's expected values to testing/expected/expected-results.csv via the existing
+   "Capture baseline" mode in engine-parity.html, then have a human confirm the captured values against
+   the PHB/DATA before committing (same human-review discipline as D-GH13).
+4. Wire the new fixtures into testing/tests/engine-parity.html's FIXTURES list.
+5. Do NOT change compute() or DATA — this task is test-coverage only. If gaps reveal an actual engine bug,
+   file it as a separate roadmap item rather than fixing inline here.
+6. If, after auditing, the gate genuinely is legacy/low-value (e.g. duplicated by something else), stop and
+   write up that finding instead of padding fixtures for their own sake — note it in DECISIONS.md as a
+   NEW decision (next free code: D-GH14) rather than silently doing nothing.
+```
+**Done when:** engine-parity.html reports more than 5 fixtures covering at least prereq-gate rejection,
+drawback buy-off, and one racial/mastery discount case, each with a human-reviewed CSV baseline; parity
+still reports all green (N passed / 0 failed).
+
+---
+
 # ⚪ LATER — low-severity fixes + ideas (not scheduled)
 
 **Low-severity review findings:**

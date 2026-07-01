@@ -5,15 +5,24 @@ against this repo in parallel, each in its own git worktree — never work direc
 
 ## Step 1 — read live context
 
-Read these files before picking anything:
+**Don't trust the checked-out working tree** — another parallel session can `git checkout` a different
+branch in this same shared folder between the time you read a file and the time you act on it (this has
+actually happened). Read the *true* shared state straight from the remote instead:
 
-- `AGENTS.md`
-- `docs/PACT_ROADMAP.md`
+```
+git fetch origin
+git show origin/preview:AGENTS.md
+git show origin/preview:docs/PACT_ROADMAP.md
+git show origin/preview:testing/tests/engine-parity.html
+git show origin/preview:testing/expected/expected-results.csv
+```
 
 Use them for: current per-change checklist, branch naming (`type/short-slug`), and whether the parity
-baseline (`testing/expected/expected-results.csv`) currently covers more than the original 5 fixtures —
-don't assume a fixed pass count, read the current fixture list in `testing/tests/engine-parity.html` and
-the row count in the CSV to know what "gate passes" means right now.
+baseline (the CSV row count / fixture list from `engine-parity.html`) currently covers more than the
+original 5 fixtures — don't assume a fixed pass count, read what's actually there right now.
+
+Only fall back to reading the working-tree copies of these files if `git show origin/preview:...` fails
+(e.g. no network) — and say so if you do.
 
 ## Step 2 — pick the task
 
